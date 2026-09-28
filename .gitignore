@@ -1,0 +1,15 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+dist/
+build/
+*.egg-info/
+node_modules/
+web/dist/
+.DS_Store
+projects/
+*.mp4
+*.png
+.idea/
+.vscode/

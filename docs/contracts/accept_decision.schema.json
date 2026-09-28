@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "hermes/contracts/accept_decision.schema.json",
+  "title": "HermesAcceptDecision",
+  "type": "object",
+  "required": [
+    "decision_id",
+    "decision_kind",
+    "status",
+    "series_id",
+    "decided_by",
+    "decided_at"
+  ],
+  "properties": {
+    "decision_id": { "type": "string" },
+    "decision_kind": {
+      "type": "string",
+      "enum": [
+        "artifact_acceptance",
+        "cast_image_acceptance",
+        "workflow_acceptance",
+        "episode_acceptance",
+        "shot_acceptance"
+      ]
+    },
+    "artifact": { "type": ["string", "null"] },
+    "character": { "type": ["string", "null"] },
+    "episode_id": { "type": ["string", "null"] },
+    "shot_id": { "type": ["string", "null"] },
+    "status": {
+      "type": "string",
+      "enum": ["accepted", "rejected", "superseded"]
+    },
+    "target_hashes": {
+      "type": "object",
+      "additionalProperties": { "type": "string" }
+    },
+    "decided_by": { "type": "string" },
+    "decided_at": { "type": "string" },
+    "series_id": { "type": "string" },
+    "supersedes_decision_id": { "type": ["string", "null"] }
+  },
+  "additionalProperties": false
+}

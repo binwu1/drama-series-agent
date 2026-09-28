@@ -1,0 +1,22 @@
+{
+  "event_id": "evt_01JEXAMPLE",
+  "event_type": "ShotDone",
+  "job_id": "job_comfy_七龙珠_EP001_01",
+  "job_kind": "comfy_episode",
+  "series_id": "七龙珠",
+  "episode_id": "EP001",
+  "shot_id": "SHOT-003",
+  "workflow": "selfhost/video_minimax_h3_r2v_fast.json",
+  "index": 2,
+  "total": 16,
+  "ratio": 1.0,
+  "phase": "done",
+  "progress": 0.1875,
+  "paths": {
+    "video": "templates/七龙珠/output/EP001/shots/SHOT-003/video.mp4",
+    "tail": "templates/七龙珠/output/EP001/shots/SHOT-003/tail_frame.png"
+  },
+  "error": null,
+  "message": null,
+  "ts": "2026-09-20T07:00:00+00:00"
+}

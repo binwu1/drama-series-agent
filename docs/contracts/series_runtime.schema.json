@@ -1,0 +1,127 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "hermes/contracts/series_runtime.schema.json",
+  "title": "HermesSeriesRuntime",
+  "type": "object",
+  "required": [
+    "contract_version",
+    "series_id",
+    "stage",
+    "updated_at"
+  ],
+  "properties": {
+    "contract_version": { "type": "string", "const": "1.0.0" },
+    "series_id": { "type": "string", "minLength": 1 },
+    "conversation_id": { "type": ["string", "null"] },
+    "stage": {
+      "type": "string",
+      "enum": [
+        "idle",
+        "s1_intake",
+        "s1_enrich",
+        "s2_ready",
+        "s2_building",
+        "s2_rendering",
+        "s3_episode_done",
+        "s4_review",
+        "s5_maintain",
+        "s6_deliver",
+        "series_idle"
+      ]
+    },
+    "default_workflow": { "type": ["string", "null"] },
+    "aspect": { "type": "string", "default": "9:16" },
+    "context_ir": {
+      "type": "string",
+      "enum": ["off", "local", "api"],
+      "default": "off"
+    },
+    "last_completed_episode": { "type": ["string", "null"] },
+    "next_episode": { "type": ["string", "null"] },
+    "active_job_ids": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "enrich_jobs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["job_id", "job_kind", "status"],
+        "properties": {
+          "job_id": { "type": "string" },
+          "job_kind": { "type": "string" },
+          "status": {
+            "type": "string",
+            "enum": ["queued", "running", "done", "failed", "cancelled"]
+          },
+          "created_at": { "type": "string" }
+        }
+      }
+    },
+    "episodes": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "missing_literary",
+              "ready",
+              "building",
+              "rendering",
+              "done",
+              "partial",
+              "failed",
+              "accepted"
+            ]
+          },
+          "workflow": { "type": ["string", "null"] },
+          "master_path": { "type": ["string", "null"] },
+          "jsonl_path": { "type": ["string", "null"] },
+          "resume_from_shot": { "type": ["string", "null"] },
+          "accepted_shots": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "locked_shots": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "failed_shots": {
+            "type": "array",
+            "items": { "type": "string" }
+          }
+        }
+      }
+    },
+    "s1_gate": {
+      "type": "object",
+      "properties": {
+        "literary_accepted": { "type": "boolean" },
+        "cast_leads_accepted": { "type": "boolean" },
+        "audio_status": {
+          "type": "string",
+          "enum": ["present", "missing", "partial", "deferred"]
+        },
+        "ready_for_s2": { "type": "boolean" }
+      }
+    },
+    "deliveries": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "version": { "type": "string" },
+          "at": { "type": "string" },
+          "paths": {
+            "type": "array",
+            "items": { "type": "string" }
+          }
+        }
+      }
+    },
+    "updated_at": { "type": "string", "format": "date-time" }
+  },
+  "additionalProperties": false
+}

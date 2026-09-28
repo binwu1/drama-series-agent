@@ -1,0 +1,91 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "hermes/contracts/job_events.schema.json",
+  "title": "HermesDramaJobEvent",
+  "type": "object",
+  "required": [
+    "event_id",
+    "event_type",
+    "job_id",
+    "job_kind",
+    "series_id",
+    "ts"
+  ],
+  "properties": {
+    "event_id": { "type": "string", "minLength": 1 },
+    "event_type": {
+      "type": "string",
+      "enum": [
+        "JobQueued",
+        "BuildStarted",
+        "BuildDone",
+        "ShotStarted",
+        "ShotProgress",
+        "ShotDone",
+        "ShotFailed",
+        "EpisodeDone",
+        "JobCancelled",
+        "JobFailed",
+        "EnrichStarted",
+        "EnrichDone",
+        "Milestone"
+      ]
+    },
+    "job_id": { "type": "string", "minLength": 1 },
+    "job_kind": {
+      "type": "string",
+      "enum": [
+        "literary_generate",
+        "cast_image_generate",
+        "intake_finalize",
+        "build_episode_jsonl",
+        "comfy_episode",
+        "export_package"
+      ]
+    },
+    "series_id": { "type": "string", "minLength": 1 },
+    "episode_id": { "type": ["string", "null"] },
+    "shot_id": { "type": ["string", "null"] },
+    "workflow": { "type": ["string", "null"] },
+    "index": { "type": ["integer", "null"], "minimum": 0 },
+    "total": { "type": ["integer", "null"], "minimum": 0 },
+    "ratio": {
+      "type": ["number", "null"],
+      "minimum": 0,
+      "maximum": 1
+    },
+    "phase": {
+      "type": ["string", "null"],
+      "enum": [
+        null,
+        "queued",
+        "building",
+        "validating",
+        "uploading",
+        "sampling",
+        "downloading",
+        "freeing_vram",
+        "concat",
+        "done",
+        "failed"
+      ]
+    },
+    "progress": {
+      "type": ["number", "null"],
+      "minimum": 0,
+      "maximum": 1,
+      "description": "Job-level 0..1 for Web ProgressEvent bridge"
+    },
+    "paths": {
+      "type": "object",
+      "additionalProperties": { "type": "string" }
+    },
+    "error": { "type": ["string", "null"] },
+    "message": {
+      "type": ["string", "null"],
+      "description": "Human milestone for Chat (Milestone events)"
+    },
+    "ts": { "type": "string", "format": "date-time" }
+  },
+  "additionalProperties": false
+}

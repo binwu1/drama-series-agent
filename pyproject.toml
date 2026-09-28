@@ -1,12 +1,12 @@
 [project]
 name = "drama-series-agent"
 version = "0.1.0"
-description = "Series-scoped agent for short-drama production: intake, enrich, build, render jobs, chat shell."
+description = "Series-scoped agent for short-drama production: intake, enrich, build, render jobs, chat shell — clone and render with local ComfyUI."
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "Apache-2.0" }
 authors = [{ name = "Drama Series Agent Contributors" }]
-keywords = ["short-drama", "agent", "series", "comfyui", "aigc"]
+keywords = ["short-drama", "agent", "series", "comfyui", "aigc", "minimax", "h3"]
 dependencies = [
   "fastapi>=0.110",
   "uvicorn[standard]>=0.27",
@@ -16,7 +16,12 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=7.0"]
+render = ["comfykit>=0.2"]
+dev = ["pytest>=7.0", "comfykit>=0.2"]
+
+[project.scripts]
+drama-series-api = "drama_series_agent.cli:run_api_main"
+drama-series-render = "drama_series_agent.cli:run_episode_main"
 
 [build-system]
 requires = ["setuptools>=68", "wheel"]

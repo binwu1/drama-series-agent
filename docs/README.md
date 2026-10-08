@@ -1,4 +1,9 @@
-# Hermes drama agent (HostApp) — architecture + Stage1 intake
+# Hermes drama agent — architecture + Stage1 intake
+
+End-user manuals (workbench / chat flow):
+
+- [User Guide (English)](USER_GUIDE.md)
+- [用户使用手册（中文）](USER_GUIDE.zh-CN.md)
 
 ## Status
 
@@ -52,9 +57,14 @@ from drama_series_agent.drama.dispatch import handle_tool_call
 | `dramas/{slug}/` | Literary mount |
 | `templates/{slug}/` | HostApp episode mount |
 | `data/cast/{slug}/` | Cast + voices mount |
-| `.cursor/skills/drama-intake/` | Stage1-A skill |
+| `skills/drama-intake/` | Stage1-A skill |
+| `skills/drama-series-develop/` | 立项/大纲/世界观/角色/画风（参考 short-drama-develop） |
+| `skills/0xsline-short-drama/` | Literary skill (runtime by literary_skill) |
+| `skills/drama-series-h3-r2v-prompts/` | H3 Ref2VA wiring skill |
 
 ## Python packages
 
 - `drama_series_agent.intake` — detect / scaffold / ingest / handoff
 - `drama_series_agent.drama` — JobEvent, SeriesRuntime, EventBus, S1-B enrich, S3 hook, Comfy worker
+- `drama_series_agent.adapters.r2v` — MiniMax H3 R2V episode runner / validate
+- Skills resolve via `drama_series_agent.utils.skills_paths`

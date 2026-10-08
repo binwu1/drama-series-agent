@@ -84,6 +84,7 @@ async def run_episode(
     episode_id: str,
     from_shot: Optional[str] = None,
     force: bool = False,
+    force_shot_ids: Optional[list[str]] = None,
     core: Any = None,
     width: Optional[int] = None,
     height: Optional[int] = None,
@@ -134,6 +135,7 @@ async def run_episode(
     base_wf_path = _resolve_workflow_file(meta.h3_workflow)
     base_wf = load_base_workflow(base_wf_path)
 
+    force_set = {str(s).strip() for s in (force_shot_ids or []) if str(s).strip()}
     started = from_shot is None
     video_paths: list[Path] = []
     last_shot: Optional[ShotRunLine] = None
@@ -174,7 +176,8 @@ async def run_episode(
         video_dest = shot_dir / "video.mp4"
         tail_dest = shot_dir / "tail_frame.png"
 
-        if video_dest.is_file() and tail_dest.is_file() and not force:
+        force_this = force or (shot.shot_id in force_set)
+        if video_dest.is_file() and tail_dest.is_file() and not force_this:
             logger.info(f"skip done {shot.shot_id}")
             video_paths.append(video_dest)
             last_shot = shot

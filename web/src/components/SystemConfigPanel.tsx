@@ -492,6 +492,8 @@ export function SystemConfigPanel({ conversationId, onSaved }: Props) {
                         ? videoOptions
                         : [
                             "selfhost/video_minimax_h3_r2v_fast.json",
+                            "selfhost/video_minimax_h3_r2v_turbo.json",
+                            "selfhost/video_minimax_h3_r2v_lora.json",
                             "selfhost/video_minimax_h3_r2v.json",
                           ]
                       ).map((w) => (

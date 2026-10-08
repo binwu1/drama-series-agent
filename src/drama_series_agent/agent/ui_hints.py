@@ -137,6 +137,12 @@ def build_status_payload(project_dir: Path) -> dict[str, Any]:
     enrich_jobs = list(getattr(rt, "enrich_jobs", None) or [])
     literary = _literary_artifacts(project_dir)
     cast = _cast_artifacts(project_dir)
+    try:
+        from drama_series_agent.drama.series_bible import get_series_bible_status
+
+        series_bible = get_series_bible_status(project_dir=project_dir)
+    except Exception as e:  # noqa: BLE001
+        series_bible = {"ok": False, "bible_ready": False, "error": str(e)}
     has_lit_files = bool(literary.get("episodes"))
     has_cast = bool(cast.get("assets"))
     job = active[-1] if active else "idle"
@@ -146,9 +152,11 @@ def build_status_payload(project_dir: Path) -> dict[str, Any]:
         or bool(active)
         or has_lit_files
         or has_cast
+        or not bool(series_bible.get("bible_ready"))
     )
     label = (
         f"阶段={rt.stage} | "
+        f"圣经{'✓' if series_bible.get('bible_ready') else '…'} "
         f"文学{'✓' if lit_ok else '…'} "
         f"角色{'✓' if cast_ok else '…'} "
         f"音频{audio_zh} | Job:{job}"
@@ -158,6 +166,7 @@ def build_status_payload(project_dir: Path) -> dict[str, Any]:
         "stage": rt.stage,
         "next_episode": rt.next_episode,
         "s1_gate": gate,
+        "series_bible": series_bible,
         "active_job_ids": active,
         "enrich_jobs": enrich_jobs[-8:],
         "open_workbench": open_wb,
@@ -165,6 +174,7 @@ def build_status_payload(project_dir: Path) -> dict[str, Any]:
         "artifacts": {
             "literary": literary,
             "cast": cast,
+            "series_bible": series_bible,
         },
         "s2": _s2_snapshot(project_dir, rt),
     }

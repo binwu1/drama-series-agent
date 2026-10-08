@@ -4,7 +4,11 @@
 from __future__ import annotations
 
 import json
+import os
 import re
+import tempfile
+import threading
+import time
 from copy import deepcopy
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -26,6 +30,20 @@ STAGES = (
     "s6_deliver",
     "series_idle",
 )
+
+# Process-local locks: literary worker + API often touch the same file concurrently.
+_RUNTIME_LOCKS: dict[str, threading.RLock] = {}
+_RUNTIME_LOCKS_GUARD = threading.Lock()
+
+
+def _runtime_lock(path: Path) -> threading.RLock:
+    key = str(path.resolve())
+    with _RUNTIME_LOCKS_GUARD:
+        lock = _RUNTIME_LOCKS.get(key)
+        if lock is None:
+            lock = threading.RLock()
+            _RUNTIME_LOCKS[key] = lock
+        return lock
 
 
 def _now() -> str:
@@ -165,34 +183,106 @@ def runtime_path(project_dir: Path) -> Path:
     return Path(project_dir) / "series_runtime.json"
 
 
-def load_runtime(project_dir: Path, *, create_if_missing: bool = True) -> SeriesRuntime:
-    """Load series_runtime.json; optionally create a default for old/incomplete scaffolds."""
-    project_dir = Path(project_dir)
-    path = runtime_path(project_dir)
-    if path.is_file():
-        return SeriesRuntime.from_dict(json.loads(path.read_text(encoding="utf-8")))
-
-    if not create_if_missing:
-        raise FileNotFoundError(f"missing series_runtime.json: {path}")
-
+def _series_id_from_project(project_dir: Path) -> str:
     series_id = project_dir.name
     pj = project_dir / "project.json"
     if pj.is_file():
         try:
             data = json.loads(pj.read_text(encoding="utf-8"))
-            series_id = data.get("slug") or data.get("project_id") or data.get("title") or series_id
+            series_id = (
+                data.get("slug")
+                or data.get("project_id")
+                or data.get("title")
+                or series_id
+            )
         except Exception:  # noqa: BLE001
             pass
-    rt = default_runtime(str(series_id))
-    save_runtime(project_dir, rt)
-    return rt
+    return str(series_id)
+
+
+def _read_runtime_dict(path: Path) -> Optional[dict[str, Any]]:
+    """Parse runtime JSON; return None if empty/corrupt."""
+    try:
+        raw = path.read_text(encoding="utf-8")
+    except Exception:  # noqa: BLE001
+        return None
+    text = raw.strip()
+    if not text:
+        return None
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(data, dict) or not data.get("series_id"):
+        return None
+    return data
+
+
+def load_runtime(project_dir: Path, *, create_if_missing: bool = True) -> SeriesRuntime:
+    """Load series_runtime.json; tolerate empty/corrupt mid-write; recreate if needed."""
+    project_dir = Path(project_dir)
+    path = runtime_path(project_dir)
+    lock = _runtime_lock(path)
+    with lock:
+        if path.is_file():
+            data = _read_runtime_dict(path)
+            if data is None:
+                # Concurrent writer may briefly leave empty file — retry a few times
+                for _ in range(5):
+                    time.sleep(0.05)
+                    data = _read_runtime_dict(path)
+                    if data is not None:
+                        break
+            if data is None:
+                bak = path.with_suffix(path.suffix + ".bak")
+                if bak.is_file():
+                    data = _read_runtime_dict(bak)
+            if data is not None:
+                return SeriesRuntime.from_dict(data)
+            if not create_if_missing:
+                raise FileNotFoundError(f"corrupt series_runtime.json: {path}")
+            # Last resort: rebuild default (keeps series usable after race truncate)
+            rt = default_runtime(_series_id_from_project(project_dir))
+            save_runtime(project_dir, rt)
+            return rt
+
+        if not create_if_missing:
+            raise FileNotFoundError(f"missing series_runtime.json: {path}")
+
+        rt = default_runtime(_series_id_from_project(project_dir))
+        save_runtime(project_dir, rt)
+        return rt
 
 
 def save_runtime(project_dir: Path, runtime: SeriesRuntime) -> Path:
+    """Atomic write to avoid empty/partial JSON during concurrent API + worker access."""
     path = runtime_path(project_dir)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        json.dumps(runtime.to_dict(), ensure_ascii=False, indent=2) + "\n",
-        encoding="utf-8",
-    )
+    payload = json.dumps(runtime.to_dict(), ensure_ascii=False, indent=2) + "\n"
+    lock = _runtime_lock(path)
+    with lock:
+        fd, tmp_name = tempfile.mkstemp(
+            prefix=f".{path.name}.",
+            suffix=".tmp",
+            dir=str(path.parent),
+        )
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                fh.write(payload)
+                fh.flush()
+                os.fsync(fh.fileno())
+            if path.is_file() and path.stat().st_size > 0:
+                try:
+                    bak = path.with_suffix(path.suffix + ".bak")
+                    # Best-effort backup of last good file
+                    bak.write_bytes(path.read_bytes())
+                except Exception:  # noqa: BLE001
+                    pass
+            os.replace(tmp_name, path)
+        except Exception:
+            try:
+                os.unlink(tmp_name)
+            except OSError:
+                pass
+            raise
     return path

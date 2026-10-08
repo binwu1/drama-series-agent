@@ -176,11 +176,81 @@ def tool_schemas_s1_enrich() -> list[dict[str, Any]]:
         {
             "type": "function",
             "function": {
+                "name": "get_series_bible_status",
+                "description": (
+                    "查看系列开发文件是否齐：creative-plan/world/characters/art-style/episode-directory。"
+                    "新剧在写第一集前应先检查。"
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {"project_dir": {"type": "string"}},
+                    "required": ["project_dir"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "run_series_develop",
+                "description": (
+                    "根据用户的故事点子，按 skills/drama-series-develop 生成并落盘系列开发包"
+                    "（大纲、世界观、主要角色、画风、分集目录）到 dramas/{slug}/。"
+                    "默认后台执行并立即返回 job_id；完成后会追加助手消息列出文件路径。"
+                    "当用户说「确定大纲/世界观/角色/画风」「先做设定」「立项」时必须立刻调用本工具；"
+                    "禁止只口头说「请稍候」而不调用工具；禁止用本工具写第1集剧本。"
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "project_dir": {"type": "string"},
+                        "brief": {
+                            "type": "string",
+                            "description": "用户原文需求 + 补充约束",
+                        },
+                        "title": {"type": "string"},
+                        "genre": {"type": "string"},
+                        "art_direction_hint": {"type": "string"},
+                        "run_in_background": {
+                            "type": "boolean",
+                            "description": "默认 true。长任务必须后台，避免对话卡住。",
+                        },
+                    },
+                    "required": ["project_dir", "brief"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "save_series_bible_doc",
+                "description": (
+                    "保存或修订单个开发文件（用户也可在系列设定页手改）："
+                    "creative-plan.md | world.md | characters.md | art-style.md | episode-directory.md。"
+                    "聊天修订时只改正文要点，尽量保留原有标题与表格结构。"
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "project_dir": {"type": "string"},
+                        "file_name": {"type": "string"},
+                        "content": {"type": "string"},
+                    },
+                    "required": ["project_dir", "file_name", "content"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
                 "name": "run_literary_generate",
                 "description": (
-                    "写文学草稿（0xsline 技能）。"
-                    "续写第N集时传 episode_ids=['ep00N']（如 ep002），"
-                    "不要口头宣称已生成；须等本工具返回成功。"
+                    "仅在用户明确要求写某一集剧本，且系列圣经已齐"
+                    "（含 episode-directory.md，或 force=true）时调用。"
+                    "写集会读取 dramas/{slug}/episode-directory.md 对应集条目作为剧情依据。"
+                    "「重新生成 / 写第N集剧情」默认只写剧本，chain_s2=false。"
+                    "仅当用户明确要求出片/渲染/构建分镜时才传 chain_s2=true。"
+                    "用户只要大纲/世界观/角色/画风/分集目录时禁止使用——改用 run_series_develop。"
+                    "续写第N集时传 episode_ids=['ep00N']。"
                 ),
                 "parameters": {
                     "type": "object",
@@ -195,6 +265,17 @@ def tool_schemas_s1_enrich() -> list[dict[str, Any]]:
                         },
                         "revision_notes": {"type": "string"},
                         "run_in_background": {"type": "boolean"},
+                        "chain_s2": {
+                            "type": "boolean",
+                            "description": (
+                                "默认 false。仅用户明确出片/渲染时为 true："
+                                "写集后 Accept → run_s2_build_and_comfy"
+                            ),
+                        },
+                        "force": {
+                            "type": "boolean",
+                            "description": "跳过系列圣经门禁（仅用户明确要求先写集时）",
+                        },
                     },
                     "required": ["project_dir", "premise"],
                 },

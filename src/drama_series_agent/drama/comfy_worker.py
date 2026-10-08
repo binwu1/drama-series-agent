@@ -148,11 +148,12 @@ def resume_episode(
     episode_id: Optional[str] = None,
     from_shot: Optional[str] = None,
     force: bool = False,
+    force_shot_ids: Optional[list[str]] = None,
     run_in_background: bool = True,
     bus: Optional[InMemoryEventBus] = None,
     run_episode_fn: Optional[Callable[..., Any]] = None,
 ) -> dict[str, Any]:
-    """Resume Comfy from runtime.resume_from_shot or an explicit shot id."""
+    """Resume Comfy from runtime.resume_from_shot, first missing shot, or explicit id."""
     hermes_project_dir = canonical_hermes_project(Path(hermes_project_dir))
     rt = load_runtime(hermes_project_dir)
     ep = (episode_id or rt.next_episode or "EP001").strip()
@@ -161,10 +162,15 @@ def resume_episode(
     row = dict(rt.episodes.get(ep) or {})
     shot = (from_shot or row.get("resume_from_shot") or "").strip() or None
     if not shot:
+        from drama_series_agent.drama.episode_progress import build_episode_progress
+
+        prog = build_episode_progress(hermes_project_dir, ep, rt=rt)
+        shot = (prog.get("continue_from_shot") or "").strip() or None
+    if not shot:
         return {
             "ok": False,
             "error": "no_resume_shot",
-            "message": f"{ep} 没有记录断点镜头；请指定 from_shot（如 SHOT-003）",
+            "message": f"{ep} 没有可续跑的镜头（已全部完成或尚无 jsonl）",
             "episode_id": ep,
         }
     # Clear stale cancel flags before re-queue
@@ -175,12 +181,54 @@ def resume_episode(
         episode_id=ep,
         from_shot=shot,
         force=force,
+        force_shot_ids=force_shot_ids,
         run_in_background=run_in_background,
         bus=bus,
         run_episode_fn=run_episode_fn,
     )
     out["resumed_from"] = shot
     out["message"] = f"已从 {ep} / {shot} 断点续跑（job={out.get('job_id')}）"
+    return out
+
+
+def regenerate_shot(
+    *,
+    hermes_project_dir: Path,
+    episode_id: str,
+    shot_id: str,
+    run_in_background: bool = True,
+    bus: Optional[InMemoryEventBus] = None,
+) -> dict[str, Any]:
+    """Force-render one shot, skip others that are done, then concat master."""
+    hermes_project_dir = canonical_hermes_project(Path(hermes_project_dir))
+    ep = episode_id.strip()
+    if ep.lower().startswith("ep") and not ep.startswith("EP"):
+        ep = "EP" + ep[2:]
+    sid = shot_id.strip()
+    templates = resolve_templates_dir(hermes_project_dir)
+    shot_dir = templates / "output" / ep / "shots" / sid
+    for name in ("video.mp4", "tail_frame.png"):
+        p = shot_dir / name
+        if p.is_file():
+            try:
+                p.unlink()
+            except OSError as e:
+                logger.warning(f"could not remove {p}: {e}")
+    for jid in list(load_runtime(hermes_project_dir).active_job_ids or []):
+        clear_cancel(jid)
+    out = enqueue_comfy_episode(
+        hermes_project_dir=hermes_project_dir,
+        episode_id=ep,
+        from_shot=sid,
+        force=False,
+        force_shot_ids=[sid],
+        run_in_background=run_in_background,
+        bus=bus,
+    )
+    out["regenerated_shot"] = sid
+    out["message"] = (
+        f"已入队重渲 {ep}/{sid}，完成后会重新拼接 master.mp4（job={out.get('job_id')}）"
+    )
     return out
 
 
@@ -285,6 +333,7 @@ def enqueue_comfy_episode(
     episode_id: str,
     from_shot: Optional[str] = None,
     force: bool = False,
+    force_shot_ids: Optional[list[str]] = None,
     cast_series: Optional[str] = None,
     context_ir: Optional[str] = None,
     run_in_background: bool = True,
@@ -354,6 +403,7 @@ def enqueue_comfy_episode(
         "series_id": rt.series_id,
         "from_shot": from_shot,
         "force": force,
+        "force_shot_ids": list(force_shot_ids or []),
         "cast_series": cast_series or rt.series_id,
         "context_ir": context_ir or rt.context_ir or "off",
         "workflow": rt.default_workflow,
@@ -420,6 +470,7 @@ async def _run_job(
     series_id: str,
     from_shot: Optional[str],
     force: bool,
+    force_shot_ids: Optional[list[str]] = None,
     cast_series: str,
     context_ir: str,
     workflow: Optional[str],
@@ -456,11 +507,29 @@ async def _run_job(
 
             raise RunnerCancelled(None)
 
+        # Keep episode-meta.h3_workflow in sync with series_runtime / settings.
+        # Runner reads meta only; stale meta would keep emitting old tmp graphs.
+        if workflow and meta_path.is_file():
+            try:
+                meta_obj = json.loads(meta_path.read_text(encoding="utf-8"))
+                if meta_obj.get("h3_workflow") != workflow:
+                    meta_obj["h3_workflow"] = workflow
+                    meta_path.write_text(
+                        json.dumps(meta_obj, ensure_ascii=False, indent=2) + "\n",
+                        encoding="utf-8",
+                    )
+                    logger.info(
+                        f"synced {meta_path.name} h3_workflow → {workflow}"
+                    )
+            except Exception as sync_err:  # noqa: BLE001
+                logger.warning(f"failed to sync h3_workflow on meta: {sync_err}")
+
         master = await run_fn(
             project_root=templates_dir,
             episode_id=episode_id,
             from_shot=from_shot,
             force=force,
+            force_shot_ids=force_shot_ids or None,
             cast_series=cast_series,
             context_ir=context_ir,
             progress_callback=on_progress,

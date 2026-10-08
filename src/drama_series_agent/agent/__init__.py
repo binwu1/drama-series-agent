@@ -10,6 +10,9 @@ __all__ = [
     "get_conversation",
     "append_message",
     "load_messages",
+    "record_turn",
+    "load_turns",
+    "evaluate_trajectory",
 ]
 
 from drama_series_agent.agent.paths import default_workspace_root
@@ -19,3 +22,8 @@ from drama_series_agent.agent.session_store import (
     list_conversations,
 )
 from drama_series_agent.agent.chat_store import append_message, load_messages
+from drama_series_agent.agent.turn_trace import (
+    evaluate_trajectory,
+    load_turns,
+    record_turn,
+)

@@ -146,6 +146,33 @@ def _dispatch(name: str, args: dict[str, Any]) -> Any:
             character=args.get("character"),
         )
 
+    # --- S1 develop / series bible ---
+    if name == "get_series_bible_status":
+        from drama_series_agent.drama.series_bible import get_series_bible_status
+
+        return get_series_bible_status(project_dir=Path(args["project_dir"]))
+
+    if name == "run_series_develop":
+        from drama_series_agent.drama.series_bible import run_series_develop
+
+        return run_series_develop(
+            project_dir=Path(args["project_dir"]),
+            brief=args["brief"],
+            title=args.get("title"),
+            genre=args.get("genre"),
+            art_direction_hint=args.get("art_direction_hint"),
+            run_in_background=args.get("run_in_background", True),
+        )
+
+    if name == "save_series_bible_doc":
+        from drama_series_agent.drama.series_bible import save_series_bible_doc
+
+        return save_series_bible_doc(
+            project_dir=Path(args["project_dir"]),
+            file_name=args["file_name"],
+            content=args["content"],
+        )
+
     # --- S1-B enrich ---
     if name == "run_literary_generate":
         return run_literary_generate(
@@ -156,7 +183,9 @@ def _dispatch(name: str, args: dict[str, Any]) -> Any:
             episode_ids=args.get("episode_ids"),
             revision_notes=args.get("revision_notes"),
             run_in_background=bool(args.get("run_in_background")),
+            force=bool(args.get("force")),
             use_skill=True,
+            chain_s2=bool(args.get("chain_s2")),
             bus=bus,
         )
 

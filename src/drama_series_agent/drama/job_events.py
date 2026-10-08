@@ -42,6 +42,7 @@ class JobCancelled(Exception):
 
 class JobKind(str, Enum):
     LITERARY_GENERATE = "literary_generate"
+    SERIES_DEVELOP = "series_develop"
     CAST_IMAGE_GENERATE = "cast_image_generate"
     INTAKE_FINALIZE = "intake_finalize"
     BUILD_EPISODE_JSONL = "build_episode_jsonl"

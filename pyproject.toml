@@ -10,14 +10,17 @@ keywords = ["short-drama", "agent", "series", "comfyui", "aigc", "minimax", "h3"
 dependencies = [
   "fastapi>=0.110",
   "uvicorn[standard]>=0.27",
+  "python-multipart>=0.0.9",
   "pydantic>=2.0",
   "loguru>=0.7",
   "httpx>=0.27",
+  "openai>=1.40",
+  "imageio-ffmpeg>=0.5",
 ]
 
 [project.optional-dependencies]
-render = ["comfykit>=0.2"]
-dev = ["pytest>=7.0", "comfykit>=0.2"]
+render = ["comfykit>=0.1.12"]
+dev = ["pytest>=7.0", "comfykit>=0.1.12"]
 
 [project.scripts]
 drama-series-api = "drama_series_agent.cli:run_api_main"

@@ -17,9 +17,9 @@
 | S1I0A0 | 有剧本无图无声 | 剧本入库；角色名粗提取 | write → assets → image-prompts |
 | S1I1A0 | 剧本+图 | 图入库；声 deferred | assets；可 soft-voice R2V |
 | S1I0A1 | 剧本+声 | 声入库；图阻断视觉 | 必须 image-prompts/出图 |
-| S1I1A1 | 三件齐 | 三向校验 + cast 草稿 | storyboard / video-prompts / drama_series-h3-r2v |
+| S1I1A1 | 三件齐 | 三向校验 + cast 草稿 | storyboard / video-prompts / drama-series-h3-r2v-prompts |
 | S0I1A0 / S0I1A1 | 有图无剧本 | 图建卡；剧本 missing | develop/write；禁止擅自编全剧 |
 | S0I0A1 | 仅音频 | 声登记 | 先要剧名+至少一角色名 |
-| SP** | 残缺/长文 | 原件 + 不自动 canonical | develop 导入流 |
+| SP* | 小说/残稿 | 原件进输入/ + 改编预览指针 | develop 导入流 |
 
-实现：`drama_series_agent/hermes_intake/case_matrix.py`。
+实现：`drama_series_agent.intake.case_matrix`。

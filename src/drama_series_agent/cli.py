@@ -39,7 +39,7 @@ def run_api_main() -> None:
         allow_methods=["*"],
         allow_headers=["*"],
     )
-    app.include_router(series_router, prefix="/api"))
+    app.include_router(series_router, prefix="/api")
     uvicorn.run(app, host=args.host, port=args.port)
 
 

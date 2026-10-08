@@ -174,6 +174,10 @@ def list_literary_episodes(*, project_dir: Path) -> dict[str, Any]:
                     "mtime": datetime.fromtimestamp(
                         p.stat().st_mtime, tz=timezone.utc
                     ).isoformat(),
+                    "has_user_first_frame": get_episode_first_frame_path(
+                        project_dir=project_dir, episode_id=p.stem
+                    )
+                    is not None,
                 }
             )
 
@@ -284,6 +288,132 @@ def _ep_folder_id(episode_id: str) -> str:
     return episode_id.strip().upper() if episode_id.strip().upper().startswith("EP") else episode_id
 
 
+def episode_open_dir(*, project_dir: Path) -> Path:
+    """templates/{slug}/assets/episode_open/ — per-episode user first frames."""
+    from drama_series_agent.drama.comfy_worker import resolve_templates_dir
+
+    d = resolve_templates_dir(Path(project_dir)) / "assets" / "episode_open"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def get_episode_first_frame_path(
+    *, project_dir: Path, episode_id: str
+) -> Optional[Path]:
+    """Return user-uploaded first-frame image if present."""
+    ep = _ep_folder_id(episode_id)
+    root = episode_open_dir(project_dir=project_dir)
+    for ext in (".png", ".jpg", ".jpeg", ".webp"):
+        p = root / f"{ep}{ext}"
+        if p.is_file():
+            return p
+    return None
+
+
+def episode_first_frame_relpath(*, episode_id: str, path: Path) -> str:
+    """Path relative to templates root for episode-run.jsonl first_frame."""
+    ep = _ep_folder_id(episode_id)
+    return f"assets/episode_open/{ep}{path.suffix.lower()}"
+
+
+def get_episode_first_frame_meta(
+    *, project_dir: Path, episode_id: str
+) -> dict[str, Any]:
+    ep = _ep_folder_id(episode_id)
+    path = get_episode_first_frame_path(project_dir=project_dir, episode_id=ep)
+    return {
+        "ok": True,
+        "episode_id": ep,
+        "has_user_upload": path is not None,
+        "path": str(path) if path else None,
+        "relpath": episode_first_frame_relpath(episode_id=ep, path=path) if path else None,
+        "bytes": path.stat().st_size if path else 0,
+        "priority_hint": (
+            "用户上传 > 上一集尾帧"
+            if _ep_num_safe(ep) > 1
+            else "用户上传 > 角色定妆/默认开场"
+        ),
+    }
+
+
+def _ep_num_safe(episode_id: str) -> int:
+    m = re.match(r"^EP(\d+)$", _ep_folder_id(episode_id), re.I)
+    return int(m.group(1)) if m else 1
+
+
+def upload_episode_first_frame(
+    *,
+    project_dir: Path,
+    episode_id: str,
+    source_path: str | Path,
+) -> dict[str, Any]:
+    """Save user first-frame for this episode; marks downstream rebuild."""
+    project_dir = Path(project_dir)
+    src = Path(source_path)
+    if not src.is_file():
+        raise FileNotFoundError(str(src))
+    if src.suffix.lower() not in _IMG_EXT:
+        raise ValueError(f"Unsupported image type: {src.suffix}")
+    ep = _ep_folder_id(episode_id)
+    root = episode_open_dir(project_dir=project_dir)
+    # Remove other extensions for same EP
+    for old in root.glob(f"{ep}.*"):
+        if old.suffix.lower() in _IMG_EXT:
+            try:
+                old.unlink()
+            except Exception:  # noqa: BLE001
+                pass
+    dest = root / f"{ep}{src.suffix.lower()}"
+    shutil.copy2(src, dest)
+    dirty = mark_episodes_downstream_dirty(
+        project_dir=project_dir,
+        reason="literary",
+        episode_ids=[ep],
+        memory_note=f"user first-frame uploaded → {ep} needs_rebuild",
+    )
+    return {
+        "ok": True,
+        "episode_id": ep,
+        "path": str(dest),
+        "relpath": episode_first_frame_relpath(episode_id=ep, path=dest),
+        "sha256": file_sha256(dest),
+        "downstream_dirty": dirty,
+        **get_episode_first_frame_meta(project_dir=project_dir, episode_id=ep),
+    }
+
+
+def clear_episode_first_frame(
+    *, project_dir: Path, episode_id: str
+) -> dict[str, Any]:
+    """Remove user first-frame; next build falls back to tail / open.png."""
+    project_dir = Path(project_dir)
+    ep = _ep_folder_id(episode_id)
+    root = episode_open_dir(project_dir=project_dir)
+    removed: list[str] = []
+    for old in root.glob(f"{ep}.*"):
+        if old.suffix.lower() in _IMG_EXT:
+            removed.append(str(old))
+            try:
+                old.unlink()
+            except Exception:  # noqa: BLE001
+                pass
+    dirty = None
+    if removed:
+        dirty = mark_episodes_downstream_dirty(
+            project_dir=project_dir,
+            reason="literary",
+            episode_ids=[ep],
+            memory_note=f"user first-frame cleared → {ep} needs_rebuild",
+        )
+    return {
+        "ok": True,
+        "episode_id": ep,
+        "removed": removed,
+        "downstream_dirty": dirty,
+        **get_episode_first_frame_meta(project_dir=project_dir, episode_id=ep),
+    }
+
+
 def _sync_screenplay_mirror(
     *, project_dir: Path, episode_id: str, content: str
 ) -> dict[str, Any]:
@@ -300,19 +430,111 @@ def _sync_screenplay_mirror(
     return {"ok": True, "path": str(dest), "episode_id": ep}
 
 
-def _mark_episode_run_dirty(*, project_dir: Path, episode_id: str) -> dict[str, Any]:
-    """Flag episode so next scaffold rebuilds even if jsonl already exists."""
+def _mark_episode_run_dirty(
+    *,
+    project_dir: Path,
+    episode_id: str,
+    reason: str = "literary",
+    clear_accepted_shots: bool = True,
+) -> dict[str, Any]:
+    """Flag episode so next scaffold rebuilds even if jsonl already exists.
+
+    reason: literary | cast | bible — stored as dirty flags; any forces S2 rebuild.
+    """
     project_dir = Path(project_dir)
     ep = _ep_folder_id(episode_id)
     rt = load_runtime(project_dir)
     row = dict(rt.episodes.get(ep) or {})
+    # literary_dirty remains the force bit build_worker historically checks
     row["literary_dirty"] = True
-    # Keep interrupted/comfy state; otherwise nudge toward rebuild
-    if row.get("status") in (None, "", "ready", "done", "s2_ready"):
+    if reason == "cast":
+        row["cast_dirty"] = True
+    elif reason == "bible":
+        row["bible_dirty"] = True
+    if clear_accepted_shots:
+        row["accepted_shots"] = []
+        if row.get("failed_shots"):
+            row["failed_shots"] = []
+    if row.get("status") not in ("building", "rendering", "interrupted"):
         row["status"] = "needs_rebuild"
+    row["dirty_reason"] = reason
+    row["dirty_at"] = _now()
     rt.episodes[ep] = row
     save_runtime(project_dir, rt)
-    return {"ok": True, "episode_id": ep, "literary_dirty": True}
+    return {
+        "ok": True,
+        "episode_id": ep,
+        "literary_dirty": True,
+        "reason": reason,
+        "accepted_shots_cleared": clear_accepted_shots,
+    }
+
+
+def list_known_episode_ids(*, project_dir: Path) -> list[str]:
+    """Union of runtime episodes + dramas/episodes/*.md + templates/run/*.jsonl."""
+    project_dir = Path(project_dir)
+    found: set[str] = set()
+    rt = load_runtime(project_dir)
+    for ep in rt.episodes.keys():
+        found.add(_ep_folder_id(str(ep)))
+    dramas = Path(_mounts(project_dir)["dramas_dir"]) / "episodes"
+    if dramas.is_dir():
+        for p in dramas.glob("*.md"):
+            found.add(_ep_folder_id(p.stem))
+    try:
+        from drama_series_agent.drama.comfy_worker import resolve_templates_dir
+
+        run_dir = resolve_templates_dir(project_dir) / "run"
+        if run_dir.is_dir():
+            for p in run_dir.glob("*.episode-run.jsonl"):
+                stem = p.name.replace(".episode-run.jsonl", "")
+                found.add(_ep_folder_id(stem))
+    except Exception:  # noqa: BLE001
+        pass
+    return sorted(found)
+
+
+def mark_episodes_downstream_dirty(
+    *,
+    project_dir: Path,
+    reason: str,
+    episode_ids: Optional[list[str]] = None,
+    clear_accepted_shots: bool = True,
+    memory_note: Optional[str] = None,
+) -> dict[str, Any]:
+    """Mark one/all known episodes dirty so S2 must rebuild after S1 upstream change."""
+    project_dir = Path(project_dir)
+    targets = (
+        [_ep_folder_id(e) for e in episode_ids]
+        if episode_ids
+        else list_known_episode_ids(project_dir=project_dir)
+    )
+    if not targets:
+        targets = ["EP001"]
+    marked: list[dict[str, Any]] = []
+    for ep in targets:
+        marked.append(
+            _mark_episode_run_dirty(
+                project_dir=project_dir,
+                episode_id=ep,
+                reason=reason,
+                clear_accepted_shots=clear_accepted_shots,
+            )
+        )
+    if memory_note:
+        mem = project_dir / "memory" / "PROJECT.md"
+        try:
+            mem.parent.mkdir(parents=True, exist_ok=True)
+            with mem.open("a", encoding="utf-8") as f:
+                f.write(f"\n- [{_now()}] {memory_note}\n")
+        except Exception:  # noqa: BLE001
+            pass
+    return {
+        "ok": True,
+        "reason": reason,
+        "episodes": [m.get("episode_id") for m in marked],
+        "count": len(marked),
+    }
 
 
 def propagate_literary_write(
@@ -335,7 +557,12 @@ def propagate_literary_write(
     mirror = _sync_screenplay_mirror(
         project_dir=project_dir, episode_id=path.stem, content=content
     )
-    dirty = _mark_episode_run_dirty(project_dir=project_dir, episode_id=path.stem)
+    dirty = _mark_episode_run_dirty(
+        project_dir=project_dir,
+        episode_id=path.stem,
+        reason="literary",
+        clear_accepted_shots=True,
+    )
     return {
         "ok": True,
         "episode_id": path.stem,
@@ -536,6 +763,12 @@ def upload_cast_image(
             character=name,
         )
 
+    dirty = mark_episodes_downstream_dirty(
+        project_dir=project_dir,
+        reason="cast",
+        memory_note=f"cast upload → needs_rebuild ({name})",
+    )
+
     # Update cast_table
     table_path = cast_dir / "cast_table.json"
     if table_path.is_file():
@@ -566,6 +799,7 @@ def upload_cast_image(
         "draft_path": str(dest),
         "sha256": file_sha256(dest),
         "invalidated": inv,
+        "downstream_dirty": dirty,
     }
 
 
@@ -589,7 +823,17 @@ def reject_cast_image(*, project_dir: Path, character: str) -> dict[str, Any]:
         reason=f"reject_cast_image:{name}",
         character=name,
     )
-    return {"ok": True, "character": name, "moved_to": moved}
+    dirty = mark_episodes_downstream_dirty(
+        project_dir=project_dir,
+        reason="cast",
+        memory_note=f"cast reject → needs_rebuild ({name})",
+    )
+    return {
+        "ok": True,
+        "character": name,
+        "moved_to": moved,
+        "downstream_dirty": dirty,
+    }
 
 
 def open_cast_folder(*, project_dir: Path, draft: bool = True) -> dict[str, Any]:

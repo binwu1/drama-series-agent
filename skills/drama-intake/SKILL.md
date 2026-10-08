@@ -45,7 +45,7 @@ description: >-
 
 | Case | Stage1 | Stage2 倾向（只写 handoff） |
 |------|--------|---------------------------|
-| S0I0A0 | 空骨架 | 0xsline / develop |
+| S0I0A0 | 空骨架 | drama-series-develop / 0xsline |
 | S1I0A0 | 剧本入库 | write → assets → image-prompts |
 | S1I1A0 | 图入库，声 deferred | assets；可 soft voice R2V |
 | S1I0A1 | 声入库，图阻断视觉 | 必须先出图 |
@@ -55,7 +55,7 @@ description: >-
 
 ## 工具（Function Calls）
 
-实现：`drama_series_agent/hermes_intake/`；CLI：`scripts/hermes_drama_intake.py`。
+实现：`drama_series_agent.intake`；CLI：`scripts/hermes_drama_intake.py`。
 
 | Tool | 作用 |
 |------|------|
@@ -105,7 +105,7 @@ python scripts/hermes_drama_intake.py --call project_scaffold --args-json "{\"ti
 ## Stage2 预留（本 skill 禁止执行）
 
 Handoff 字段 `suggested_skills` / `forbid` / `blocks_visual` 交给下一阶段。  
-**禁止**在 Stage1 加载：`short-drama-storyboard`、`short-drama-video-prompts`、`drama_series-h3-r2v-prompts`。
+**禁止**在 Stage1 加载：`short-drama-storyboard`、`short-drama-video-prompts`、`drama-series-h3-r2v-prompts`。
 
 ## S1-B Enrich（一句话补齐，实现已落地）
 
@@ -124,7 +124,7 @@ Handoff 字段 `suggested_skills` / `forbid` / `blocks_visual` 交给下一阶�
 默认 Accept 策略：**文学单独 Accept + 角色图批量 Accept（方案 B）**。  
 Web：`web/pages/4_🤖_Hermes_Drama.py` → tab **S1 Accept**。
 
-相关只读契约：个人套件 `short-drama`（`creator_authority`）；文学从零写用 `0xsline-short-drama`。
+相关只读契约：个人套件 `short-drama-develop`（方法参考）；本仓立项用 `drama-series-develop`；文学从零写用 `0xsline-short-drama`。
 
 ## 验收
 

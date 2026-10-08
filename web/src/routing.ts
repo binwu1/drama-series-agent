@@ -3,6 +3,7 @@
 export type Route =
   | { name: "chat" }
   | { name: "literary"; conversationId: string; episodeId?: string }
+  | { name: "bible"; conversationId: string; fileName?: string }
   | { name: "cast"; conversationId: string }
   | { name: "jobs"; conversationId: string };
 
@@ -15,6 +16,14 @@ export function parseHash(hash: string = window.location.hash): Route {
       name: "literary",
       conversationId: decodeURIComponent(parts[1]),
       episodeId: parts[3] ? decodeURIComponent(parts[3]) : undefined,
+    };
+  }
+  // /c/:cid/bible[/:file]
+  if (parts[0] === "c" && parts[1] && parts[2] === "bible") {
+    return {
+      name: "bible",
+      conversationId: decodeURIComponent(parts[1]),
+      fileName: parts[3] ? decodeURIComponent(parts[3]) : undefined,
     };
   }
   // /c/:cid/cast
@@ -42,6 +51,13 @@ export function goLiterary(cid: string, episodeId?: string) {
   const base = `#/c/${encodeURIComponent(cid)}/literary`;
   window.location.hash = episodeId
     ? `${base}/${encodeURIComponent(episodeId)}`
+    : base;
+}
+
+export function goBible(cid: string, fileName?: string) {
+  const base = `#/c/${encodeURIComponent(cid)}/bible`;
+  window.location.hash = fileName
+    ? `${base}/${encodeURIComponent(fileName)}`
     : base;
 }
 

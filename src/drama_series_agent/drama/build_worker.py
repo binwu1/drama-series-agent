@@ -1,5 +1,10 @@
 # -*- coding: utf-8 -*-
-"""S2 build worker: literary + cast → episode-run.jsonl (+ meta), then validate."""
+"""S2 build worker: literary + cast → episode-run.jsonl (+ meta), then validate.
+
+Ref2VA six-section `video_prompt` wiring follows
+`skills/drama-series-h3-r2v-prompts/` (Picture/Audio dense indices).
+Default body language is **Chinese** (section keys remain English for schema).
+"""
 
 from __future__ import annotations
 
@@ -11,6 +16,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Optional
 
+from drama_series_agent.drama.asset_studio import (
+    episode_first_frame_relpath,
+    get_episode_first_frame_path,
+)
 from drama_series_agent.drama.comfy_worker import (
     canonical_hermes_project,
     resolve_templates_dir,
@@ -376,19 +385,19 @@ def _build_video_prompt(
     duration: float,
     with_audio: bool = False,
 ) -> str:
-    """Ref2VA English shell driven by screenplay △ beat (not flat talking-heads)."""
+    """Ref2VA 六段壳：键名英文，正文默认中文（对白仍用 <d>[Chinese]…</d>）。"""
     del shot_index
     subj_lines = []
     for i, name in enumerate(characters, start=1):
         pic = i + 1
         subj_lines.append(
-            f"<Subject {i}> is {name}, whose face and costume must strictly match <Picture {pic}>."
+            f"<Subject {i}> 是 {name}，面部与服饰必须严格匹配 <Picture {pic}>。"
         )
     audio_lines = []
     if with_audio:
         for i, name in enumerate(characters, start=1):
             audio_lines.append(
-                f"<Audio {i}> is the voice-timbre reference for <Subject {i}> (S{i}) / {name}."
+                f"<Audio {i}> 是 <Subject {i}>（S{i}）/{name} 的声线音色参考。"
             )
 
     speaker = str(beat.get("speaker") or "")
@@ -401,35 +410,44 @@ def _build_video_prompt(
             break
 
     size_zh = str(beat.get("shot_size_zh") or "中景")
-    size_en = _SHOT_SIZE_EN.get(size_zh, "medium shot")
     action_zh = str(beat.get("action_zh") or "").strip()
     scene = str(beat.get("scene") or "").strip()
-    subjects = "\n".join(subj_lines) if subj_lines else "<Subject 1> is the lead character matching <Picture 2>."
+    subjects = (
+        "\n".join(subj_lines)
+        if subj_lines
+        else "<Subject 1> 是主角，外貌须匹配 <Picture 2>。"
+    )
     audios = ("\n" + "\n".join(audio_lines) + "\n") if audio_lines else "\n"
     is_vo = _is_offscreen_speaker(speaker, characters)
     timbre = (
-        f"using the timbre referenced from <Audio {sp_idx}>, "
+        f"使用 <Audio {sp_idx}> 的音色，"
         if with_audio and dialogue and not is_vo
         else ""
     )
 
-    # Keep plot/visual in Chinese inside the action clause; English for camera grammar.
     action_clause = action_zh or "角色继续动作"
-    scene_clause = f" Scene: {scene}." if scene else ""
+    scene_clause = f"场景：{scene}。" if scene else ""
     dlg_clause = ""
     if dialogue:
+        clarity = (
+            "对白吐字清晰、口型同步、音量充足、无含糊气音；"
+            if not with_audio
+            else ""
+        )
         if is_vo:
-            who = speaker or "crowd"
+            who = speaker or "画外音"
             dlg_clause = (
-                f" An off-screen voice ({who}) speaks, "
-                f"<d>[Chinese] {dialogue[:60]}</d> "
-                f"while on-screen subjects keep lips closed and react with eyes/body."
+                f"画外音（{who}）说，"
+                f"<d>[Chinese] {dialogue[:60]}</d>；"
+                f"{clarity}"
+                f"画面内人物保持闭唇，用眼神与肢体回应。"
             )
         else:
             dlg_clause = (
-                f" Then <Subject {sp_idx}> (S{sp_idx}) says, {timbre}"
-                f"<d>[Chinese] {dialogue[:60]}</d> "
-                f"<Subject {sp_idx}> closes their lips after the line."
+                f"随后 <Subject {sp_idx}>（S{sp_idx}）说，{timbre}"
+                f"<d>[Chinese] {dialogue[:60]}</d>。"
+                f"{clarity}"
+                f"<Subject {sp_idx}> 说完后闭唇。"
             )
         for extra in beat.get("extra_dialogue") or []:
             es = str(extra.get("speaker") or "")
@@ -439,8 +457,8 @@ def _build_video_prompt(
             e_vo = _is_offscreen_speaker(es, characters)
             if e_vo:
                 dlg_clause += (
-                    f" An off-screen voice ({es or 'crowd'}) continues, "
-                    f"<d>[Chinese] {ed[:60]}</d>."
+                    f"画外音（{es or '画外音'}）继续，"
+                    f"<d>[Chinese] {ed[:60]}</d>。"
                 )
                 continue
             ei = sp_idx
@@ -450,40 +468,38 @@ def _build_video_prompt(
                     ei = i
                     break
             et = (
-                f"using the timbre referenced from <Audio {ei}>, "
+                f"使用 <Audio {ei}> 的音色，"
                 if with_audio
                 else ""
             )
             dlg_clause += (
-                f" <Subject {ei}> (S{ei}) answers, {et}"
-                f"<d>[Chinese] {ed[:60]}</d> then closes their lips."
+                f"<Subject {ei}>（S{ei}）接话，{et}"
+                f"<d>[Chinese] {ed[:60]}</d>，然后闭唇。"
             )
     else:
-        # Should not happen after merge; keep a minimal tag for validate
         dlg_clause = (
-            f" <Subject {sp_idx}> (S{sp_idx}) gasps, "
-            f"<d>[Chinese] ……</d> then closes their lips."
+            f"<Subject {sp_idx}>（S{sp_idx}）短促吸气，"
+            f"<d>[Chinese] ……</d>，然后闭唇。"
         )
 
     summary_action = action_zh[:48] if action_zh else size_zh
     return (
         "subject_definitions:\n"
-        f"<Picture 1> is the first frame of [Shot 1].\n"
+        f"<Picture 1> 是 [镜头1] 的起始帧。\n"
         f"{subjects}"
         f"{audios}\n"
         "summary:\n"
-        f"[keyframe completion + reference generation] From <Picture 1>, "
-        f"{size_en}: {summary_action}.\n\n"
+        f"[首帧续写 + 参考生成] 从 <Picture 1> 起，{size_zh}：{summary_action}。\n\n"
         "retention_analysis:\n"
-        "<Picture 1> ([Shot 1] first frame): fully_preserved - opening composition continues.\n\n"
+        "<Picture 1>（[镜头1] 首帧）：fully_preserved - 开场构图延续。\n\n"
         "detailed_description:\n"
-        "The target video is a vertical 9:16 cinematic short-drama clip, not a flat dual talking-head interview.\n"
-        f"[Shot 1] The shot begins from <Picture 1>. Camera framing: {size_en} ({size_zh})."
-        f"{scene_clause} "
-        f"On-screen action (must play out clearly): {action_clause}."
-        f"{dlg_clause} "
-        f"Match total duration to about {duration} seconds. "
-        "Preserve eyelines and geography; avoid dual frontal talking heads unless the beat is pure dialogue.\n"
+        "目标视频为竖屏 9:16 电影感微短剧片段，避免平板双人采访构图。\n"
+        f"[镜头1] 从 <Picture 1> 开始。景别：{size_zh}。"
+        f"{scene_clause}"
+        f"画面动作（须清晰表演）：{action_clause}。"
+        f"{dlg_clause}"
+        f"总时长约 {duration} 秒。"
+        "保持视线与空间方位；除非本拍纯对白，避免双人正面访谈构图。\n"
     )
 
 
@@ -564,13 +580,26 @@ def build_episode_jsonl_scaffold(
                 ref_voices.append(name)
 
     open_png = assets_dir / "open.png"
-    src_cast = _best_cast_image(cast_dir, characters[0]) if characters else None
-    if src_cast is not None:
-        # Always refresh EP001 opening frame from current cast — stale open.png
-        # (wrong upload) otherwise poisons the whole prev_shot_tail chain.
-        open_png.write_bytes(src_cast.read_bytes())
-    elif not open_png.is_file():
-        open_png.write_bytes(_fat_png())
+    user_open = get_episode_first_frame_path(
+        project_dir=project_dir, episode_id=episode_id
+    )
+    # Only refresh series open.png from cast when user has NOT uploaded EP001 open
+    if user_open is None or _ep_num(episode_id) != 1:
+        src_cast = _best_cast_image(cast_dir, characters[0]) if characters else None
+        if src_cast is not None and _ep_num(episode_id) == 1:
+            # Always refresh EP001 opening frame from current cast — stale open.png
+            # (wrong upload) otherwise poisons the whole prev_shot_tail chain.
+            open_png.write_bytes(src_cast.read_bytes())
+        elif _ep_num(episode_id) == 1 and not open_png.is_file():
+            open_png.write_bytes(_fat_png())
+
+    if characters and not ref_voices:
+        logger = __import__("loguru").logger
+        logger.warning(
+            f"{episode_id}: data/cast/{series_id}/voices/ 无角色参考音频 "
+            f"（期望 {{角色}}.wav 2–15s）。无 Audio 参考时 H3 原生对白易含糊；"
+            "请放入音色后再 force 重建 jsonl。"
+        )
 
     ep_n = _ep_num(episode_id)
     shots: list[dict[str, Any]] = []
@@ -579,7 +608,15 @@ def build_episode_jsonl_scaffold(
         shot_id = f"SHOT-{order:03d}"
         duration = _beat_duration(beat)
         if order == 1:
-            if ep_n == 1:
+            # Priority: user upload > prev episode tail (EP002+) / open.png (EP001)
+            if user_open is not None:
+                first_frame = {
+                    "source": "external",
+                    "path": episode_first_frame_relpath(
+                        episode_id=episode_id, path=user_open
+                    ),
+                }
+            elif ep_n == 1:
                 first_frame = {
                     "source": "external",
                     "path": "assets/open.png",
@@ -665,10 +702,15 @@ def build_episode_jsonl_scaffold(
     if lit_text.strip():
         (ep_dir / "screenplay.md").write_text(lit_text, encoding="utf-8")
 
-    # Clear literary_dirty after successful rebuild
+    # Clear dirty flags after successful rebuild
     rt2 = load_runtime(project_dir)
     ep_row = dict(rt2.episodes.get(episode_id) or {})
-    if ep_row.pop("literary_dirty", None) is not None or ep_row.get("status") == "needs_rebuild":
+    cleared = False
+    for key in ("literary_dirty", "cast_dirty", "bible_dirty", "dirty_reason", "dirty_at"):
+        if key in ep_row:
+            ep_row.pop(key, None)
+            cleared = True
+    if ep_row.get("status") == "needs_rebuild" or cleared:
         ep_row["status"] = "ready"
         rt2.episodes[episode_id] = ep_row
         save_runtime(project_dir, rt2)
@@ -752,9 +794,14 @@ def enqueue_build_episode_jsonl(
         # soft warn — still allow force build for power users
         pass
 
-    # Literary page save sets literary_dirty → must rebuild even if jsonl exists
+    # Literary / cast / bible dirty → must rebuild even if jsonl exists
     ep_row = dict(rt.episodes.get(episode_id) or {})
-    if ep_row.get("literary_dirty") or ep_row.get("status") == "needs_rebuild":
+    if (
+        ep_row.get("literary_dirty")
+        or ep_row.get("cast_dirty")
+        or ep_row.get("bible_dirty")
+        or ep_row.get("status") == "needs_rebuild"
+    ):
         force = True
 
     rt.stage = "s2_building"
@@ -938,9 +985,14 @@ def run_s2_build_and_comfy(
         rt.default_workflow = "selfhost/video_minimax_h3_r2v_fast.json"
         save_runtime(project_dir, rt)
 
-    # Auto-force when literary was edited after last jsonl
+    # Auto-force when literary/cast/bible was edited after last jsonl
     ep_row = dict(rt.episodes.get(episode_id) or {})
-    if ep_row.get("literary_dirty") or ep_row.get("status") == "needs_rebuild":
+    if (
+        ep_row.get("literary_dirty")
+        or ep_row.get("cast_dirty")
+        or ep_row.get("bible_dirty")
+        or ep_row.get("status") == "needs_rebuild"
+    ):
         force_build = True
 
     build = enqueue_build_episode_jsonl(

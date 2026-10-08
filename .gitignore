@@ -13,3 +13,18 @@ projects/
 *.png
 .idea/
 .vscode/
+# Local Cursor skill links (created by scripts/link_cursor_skills.*); canonical is skills/
+.cursor/skills/*/
+# Promo media intentionally tracked for GitHub README
+!docs/assets/
+!docs/assets/**
+.env
+config.json
+dramas/
+data/cast/
+templates/
+projects/
+dev_memory/
+# Local-only cheat sheet (git/GitHub ops); do not publish
+LOCAL_OPS.md
+.cursor/

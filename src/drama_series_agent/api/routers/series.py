@@ -12,8 +12,12 @@ from typing import Any, AsyncIterator, Optional
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse
 
+from loguru import logger
+
 from drama_series_agent.api.schemas.hermes import (
     ActionResponse,
+    BibleDocOut,
+    BibleSaveRequest,
     CastGenerateRequest,
     CastUploadResponse,
     ConversationDetail,
@@ -29,6 +33,7 @@ from drama_series_agent.api.schemas.hermes import (
     PostMessageRequest,
     PostMessageResponse,
     S2ActionRequest,
+    ShotRegenerateRequest,
 )
 from drama_series_agent.agent.chat_store import append_message, load_messages
 from drama_series_agent.agent.paths import default_workspace_root
@@ -60,6 +65,36 @@ def _project(row: dict[str, Any]) -> Path:
     return Path(row["project_dir"])
 
 
+def _with_turn_trace(
+    *,
+    project: Path,
+    user_text: str,
+    assistant: dict[str, Any],
+    status: dict[str, Any],
+    tool_trace: list[dict[str, Any]],
+    source: str,
+) -> dict[str, Any]:
+    from drama_series_agent.agent.turn_trace import record_turn
+
+    turn = record_turn(
+        project,
+        user_text=user_text,
+        assistant_text=str(assistant.get("content") or ""),
+        tool_trace=tool_trace,
+        source=source,
+    )
+    return {
+        "assistant_message": assistant,
+        "status": status,
+        "tool_trace": tool_trace,
+        "turn_trace": {
+            "turn_id": turn.get("turn_id"),
+            "skills": turn.get("skills"),
+            "eval": turn.get("eval"),
+        },
+    }
+
+
 @router.get("/conversations", response_model=list[ConversationOut])
 def api_list_conversations() -> list[dict[str, Any]]:
     return list_conversations(drama_series_root=_drama_series_root())
@@ -87,6 +122,17 @@ def api_list_messages(cid: str) -> list[dict[str, Any]]:
     return load_messages(_project(row))
 
 
+@router.get("/conversations/{cid}/traces")
+def api_list_traces(cid: str, limit: int = 50) -> dict[str, Any]:
+    """Local turn spans + trajectory eval (projects/.../memory/traces.jsonl)."""
+    row = _require_conv(cid)
+    from drama_series_agent.agent.turn_trace import load_turns
+
+    lim = max(1, min(int(limit or 50), 200))
+    turns = load_turns(_project(row), limit=lim)
+    return {"ok": True, "count": len(turns), "turns": turns}
+
+
 @router.post("/conversations/{cid}/messages", response_model=PostMessageResponse)
 async def api_post_message(cid: str, body: PostMessageRequest) -> dict[str, Any]:
     row = _require_conv(cid)
@@ -96,6 +142,208 @@ async def api_post_message(cid: str, body: PostMessageRequest) -> dict[str, Any]
         raise HTTPException(status_code=400, detail="content required")
 
     append_message(project, role="user", content=text)
+
+    # Fast-path: develop intent → enqueue series bible job (avoid LLM "请稍候" stall)
+    from drama_series_agent.drama.develop_intent import is_series_develop_intent
+    from drama_series_agent.drama.literary_intent import (
+        literary_intent_payload,
+        s2_pipeline_payload,
+    )
+    from drama_series_agent.drama.series_bible import (
+        get_series_bible_status,
+        run_series_develop,
+    )
+
+    bible = get_series_bible_status(project_dir=project)
+    if is_series_develop_intent(text) and not bible.get("bible_ready"):
+        title = row.get("title") or row.get("series_id") or project.name
+        result = run_series_develop(
+            project_dir=project,
+            brief=text,
+            title=str(title),
+            run_in_background=True,
+        )
+        msg = (
+            result.get("message")
+            or "系列开发已启动。"
+        )
+        if result.get("job_id"):
+            msg = (
+                f"{msg}\n\n任务 id：`{result['job_id']}`\n"
+                f"完成后会写入 `{result.get('dramas_dir')}` 下的大纲/世界观/角色/画风文件；"
+                f"可刷新对话或打开「生成进度」查看。"
+            )
+        if not result.get("ok"):
+            msg = f"系列开发未能启动：{result.get('error') or result}"
+        assistant = append_message(
+            project,
+            role="assistant",
+            content=msg,
+            tool_name="run_series_develop",
+            ui_hints={"open_workbench": True, "open_progress": True},
+        )
+        return _with_turn_trace(
+            project=project,
+            user_text=text,
+            assistant=assistant,
+            status=build_status_payload(project),
+            tool_trace=[
+                {
+                    "name": "run_series_develop",
+                    "args": {"brief": text[:200], "background": True},
+                    "result": str(result)[:2000],
+                }
+            ],
+            source="api_fastpath_develop",
+        )
+
+    # Fast-path: rewrite / write episode → real run_literary_generate
+    # (models often claim "已重新生成" without calling the tool)
+    lit = literary_intent_payload(text)
+    if lit:
+        from drama_series_agent.drama.enrich import (
+            resolve_literary_premise,
+            run_literary_generate,
+        )
+
+        premise = resolve_literary_premise(project_dir=project, fallback=text)
+        chain_s2 = bool(lit.get("chain_s2"))
+        result = run_literary_generate(
+            project_dir=project,
+            premise=premise,
+            episode_count=int(lit["episode_count"]),
+            genre="短剧",
+            episode_ids=list(lit["episode_ids"]),
+            revision_notes=lit.get("revision_notes"),
+            run_in_background=True,
+            use_skill=True,
+            force=False,
+            chain_s2=chain_s2,
+        )
+        if result.get("error") == "series_bible_incomplete":
+            msg = result.get("message") or "系列圣经未齐，无法写集。"
+            assistant = append_message(
+                project,
+                role="assistant",
+                content=msg,
+                tool_name="run_literary_generate",
+                ui_hints={"open_workbench": True},
+            )
+            return _with_turn_trace(
+                project=project,
+                user_text=text,
+                assistant=assistant,
+                status=build_status_payload(project),
+                tool_trace=[
+                    {
+                        "name": "run_literary_generate",
+                        "args": lit,
+                        "result": str(result)[:2000],
+                    }
+                ],
+                source="api_fastpath_literary",
+            )
+        eps = "、".join(lit["episode_ids"])
+        job_id = result.get("job_id") or ""
+        if chain_s2:
+            msg = (
+                f"已后台启动整集流水线（{eps}），任务 `{job_id}`。\n"
+                "顺序：写集 → ①构建 episode-run.jsonl → ②校验资源 → ③入队 Comfy。\n"
+                "完成后会在对话里通知；请打开「生成进度」页跟踪渲染。"
+            )
+        else:
+            msg = (
+                f"已后台启动文学写集（{eps}），任务 `{job_id}`。\n"
+                "正在按 `episode-directory.md` 对应集条目生成；"
+                "完成后会在对话里通知，请打开「文学产出」页查看最新稿。"
+            )
+        if not result.get("ok"):
+            msg = f"文学写集未能启动：{result.get('error') or result}"
+        assistant = append_message(
+            project,
+            role="assistant",
+            content=msg,
+            tool_name="run_literary_generate",
+            ui_hints={
+                "open_workbench": True,
+                "open_progress": True,
+                "open_literary": True,
+            },
+        )
+        return _with_turn_trace(
+            project=project,
+            user_text=text,
+            assistant=assistant,
+            status=build_status_payload(project),
+            tool_trace=[
+                {
+                    "name": "run_literary_generate",
+                    "args": {
+                        "episode_ids": lit["episode_ids"],
+                        "background": True,
+                        "chain_s2": chain_s2,
+                        "revision_notes": (lit.get("revision_notes") or "")[:200],
+                    },
+                    "result": str(result)[:2000],
+                }
+            ],
+            source="api_fastpath_literary",
+        )
+
+    # Fast-path: 出片/渲染/构建分镜 → S2 only (no literary rewrite)
+    s2p = s2_pipeline_payload(text)
+    if s2p:
+        from drama_series_agent.drama.build_worker import run_s2_build_and_comfy
+        from drama_series_agent.drama.enrich import _to_ep_folder_id
+
+        ep = _to_ep_folder_id(s2p["episode_ids"][0])
+        try:
+            s2 = run_s2_build_and_comfy(
+                project_dir=project,
+                episode_id=ep,
+                force_build=True,
+                run_comfy_in_background=True,
+                skip_comfy=False,
+            )
+        except Exception as e:  # noqa: BLE001
+            s2 = {"ok": False, "error": str(e)}
+        val = (s2 or {}).get("validation") or {}
+        comfy = (s2 or {}).get("comfy") or {}
+        if s2.get("ok"):
+            msg = (
+                f"已执行 S2 流水线（{ep}）：\n"
+                "1. 构建分镜脚本 episode-run.jsonl — 完成\n"
+                f"2. 校验资源 — 通过（{val.get('shot_count') or '?'} 镜）\n"
+                f"3. 后台入队 Comfy — `{comfy.get('job_id') or '已入队'}`\n"
+                "请打开「生成进度」页查看。"
+            )
+        else:
+            errs = val.get("errors") or [s2.get("error") or "unknown"]
+            msg = (
+                f"S2 流水线未完成（{ep}）：{'; '.join(str(x) for x in errs[:6])}。"
+                "可先补角色图/验收文学后重试「出片」。"
+            )
+        assistant = append_message(
+            project,
+            role="assistant",
+            content=msg,
+            tool_name="run_s2_build_and_comfy",
+            ui_hints={"open_workbench": True, "open_progress": True},
+        )
+        return _with_turn_trace(
+            project=project,
+            user_text=text,
+            assistant=assistant,
+            status=build_status_payload(project),
+            tool_trace=[
+                {
+                    "name": "run_s2_build_and_comfy",
+                    "args": {"episode_id": ep, "force_build": True},
+                    "result": str(s2)[:2000],
+                }
+            ],
+            source="api_fastpath_s2",
+        )
 
     from drama_series_agent.agent.agent_loop import run_agent_turn
 
@@ -230,6 +478,105 @@ def api_s2_comfy(cid: str, body: S2ActionRequest | None = None) -> dict[str, Any
     return {"ok": True, "status": build_status_payload(project), "message": msg}
 
 
+@router.get("/conversations/{cid}/bible")
+def api_list_bible(cid: str) -> dict[str, Any]:
+    row = _require_conv(cid)
+    project = _project(row)
+    from drama_series_agent.drama.series_bible import get_series_bible_status
+
+    st = get_series_bible_status(project_dir=project)
+    return {
+        "ok": True,
+        "conversation_id": cid,
+        "series_id": row["series_id"],
+        "title": row.get("title"),
+        "bible_ready": st.get("bible_ready"),
+        "docs": st.get("docs") or [],
+        "missing": st.get("missing") or [],
+        "status": build_status_payload(project),
+    }
+
+
+@router.get(
+    "/conversations/{cid}/bible/{file_name}",
+    response_model=BibleDocOut,
+)
+def api_get_bible_doc(cid: str, file_name: str) -> dict[str, Any]:
+    row = _require_conv(cid)
+    project = _project(row)
+    from drama_series_agent.drama.series_bible import get_series_bible_doc
+
+    data = get_series_bible_doc(project_dir=project, file_name=file_name)
+    if not data.get("ok"):
+        raise HTTPException(status_code=400, detail=data.get("error") or "bad file")
+    return {
+        "file": data["file"],
+        "label": data.get("label") or "",
+        "content": data.get("content") or "",
+        "ready": bool(data.get("ready")),
+        "path": data.get("path"),
+        "mtime": data.get("mtime"),
+        "series_id": row["series_id"],
+        "title": row.get("title"),
+    }
+
+
+@router.put(
+    "/conversations/{cid}/bible/{file_name}",
+    response_model=BibleDocOut,
+)
+def api_save_bible_doc(
+    cid: str, file_name: str, body: BibleSaveRequest
+) -> dict[str, Any]:
+    row = _require_conv(cid)
+    project = _project(row)
+    from drama_series_agent.drama.series_bible import (
+        get_series_bible_doc,
+        save_series_bible_doc,
+    )
+
+    saved = save_series_bible_doc(
+        project_dir=project,
+        file_name=file_name,
+        content=body.content or "",
+        preserve_format=bool(body.preserve_format),
+    )
+    if not saved.get("ok"):
+        raise HTTPException(status_code=400, detail=saved.get("error") or "save failed")
+    data = get_series_bible_doc(project_dir=project, file_name=file_name)
+    hint = saved.get("hint")
+    dirty = saved.get("downstream_dirty") or {}
+    chat = (
+        f"已在系列设定页保存 {file_name}"
+        f"（系列「{row.get('title') or row['series_id']}」）。"
+    )
+    if dirty.get("count"):
+        chat += (
+            f" 已标记 {dirty.get('count')} 集 needs_rebuild"
+            f"（{', '.join((dirty.get('episodes') or [])[:6])}）；"
+            "出片前会强制重建 episode-run.jsonl。"
+        )
+    else:
+        chat += "也可在聊天里说「改一下分集目录第X集…」让我用工具修订。"
+    append_message(
+        project,
+        role="assistant",
+        content=chat,
+    )
+    return {
+        "file": data["file"],
+        "label": data.get("label") or "",
+        "content": data.get("content") or "",
+        "ready": bool(data.get("ready")),
+        "path": data.get("path"),
+        "mtime": data.get("mtime"),
+        "series_id": row["series_id"],
+        "title": row.get("title"),
+        "hint": hint,
+        "downstream_dirty": dirty or None,
+    }
+
+
 @router.get("/conversations/{cid}/literary")
 def api_list_literary(cid: str) -> dict[str, Any]:
     row = _require_conv(cid)
@@ -270,6 +617,7 @@ def api_get_literary(cid: str, episode_id: str) -> dict[str, Any]:
         "content": data.get("content") or "",
         "status": st,
         "status_zh": zh,
+        "mtime": meta.get("mtime"),
         "series_id": row["series_id"],
         "title": row.get("title"),
     }
@@ -312,8 +660,113 @@ def api_save_literary(
         "content": data.get("content") or "",
         "status": st,
         "status_zh": zh,
+        "mtime": meta.get("mtime"),
         "series_id": row["series_id"],
         "title": row.get("title"),
+    }
+
+
+@router.get("/conversations/{cid}/literary/{episode_id}/first-frame")
+def api_get_episode_first_frame_meta(cid: str, episode_id: str) -> dict[str, Any]:
+    row = _require_conv(cid)
+    project = _project(row)
+    from drama_series_agent.drama.asset_studio import get_episode_first_frame_meta
+
+    return get_episode_first_frame_meta(project_dir=project, episode_id=episode_id)
+
+
+@router.get("/conversations/{cid}/literary/{episode_id}/first-frame/image")
+def api_get_episode_first_frame_image(cid: str, episode_id: str):
+    row = _require_conv(cid)
+    project = _project(row)
+    from drama_series_agent.drama.asset_studio import get_episode_first_frame_path
+
+    path = get_episode_first_frame_path(project_dir=project, episode_id=episode_id)
+    if path is None or not path.is_file():
+        raise HTTPException(status_code=404, detail="first frame not found")
+    suffix = path.suffix.lower()
+    media = {
+        ".png": "image/png",
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".webp": "image/webp",
+        ".gif": "image/gif",
+    }.get(suffix, "application/octet-stream")
+    return FileResponse(path.resolve(), media_type=media)
+
+
+@router.post("/conversations/{cid}/literary/{episode_id}/first-frame")
+async def api_upload_episode_first_frame(
+    cid: str,
+    episode_id: str,
+    file: UploadFile = File(...),
+) -> dict[str, Any]:
+    import tempfile
+
+    row = _require_conv(cid)
+    project = _project(row)
+    from drama_series_agent.drama.asset_studio import upload_episode_first_frame
+
+    suffix = Path(file.filename or "open.png").suffix.lower() or ".png"
+    tmp_path: Optional[Path] = None
+    try:
+        raw = await file.read()
+        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+            tmp.write(raw)
+            tmp_path = Path(tmp.name)
+        result = upload_episode_first_frame(
+            project_dir=project,
+            episode_id=episode_id,
+            source_path=tmp_path,
+        )
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    finally:
+        if tmp_path is not None:
+            try:
+                tmp_path.unlink(missing_ok=True)
+            except Exception:  # noqa: BLE001
+                pass
+    append_message(
+        project,
+        role="assistant",
+        content=(
+            f"已上传 {episode_id} 首帧"
+            f"（系列「{row.get('title') or row['series_id']}」）；下次出片将优先使用。"
+        ),
+    )
+    return {
+        **result,
+        "status": build_status_payload(project),
+        "message": f"已上传 {episode_id} 首帧",
+    }
+
+
+@router.delete("/conversations/{cid}/literary/{episode_id}/first-frame")
+def api_clear_episode_first_frame(cid: str, episode_id: str) -> dict[str, Any]:
+    row = _require_conv(cid)
+    project = _project(row)
+    from drama_series_agent.drama.asset_studio import clear_episode_first_frame
+
+    result = clear_episode_first_frame(project_dir=project, episode_id=episode_id)
+    if result.get("removed"):
+        append_message(
+            project,
+            role="assistant",
+            content=(
+                f"已清除 {episode_id} 用户首帧"
+                f"（系列「{row.get('title') or row['series_id']}」）；"
+                "将回退到上一集尾帧或默认开场。"
+            ),
+        )
+    return {
+        **result,
+        "status": build_status_payload(project),
+        "message": (
+            f"已清除 {episode_id} 首帧"
+            if result.get("removed")
+            else f"{episode_id} 无用户首帧"
+        ),
     }
 
 
@@ -631,10 +1084,11 @@ async def api_cast_generate(cid: str, body: CastGenerateRequest) -> dict[str, An
 
 @router.get("/conversations/{cid}/jobs")
 def api_jobs(cid: str) -> dict[str, Any]:
-    """Job snapshots + recent events for the progress page."""
+    """Job snapshots + per-episode progress + recent events for the progress page."""
     row = _require_conv(cid)
     project = _project(row)
     from drama_series_agent.drama.comfy_worker import get_job_snapshot, list_active_jobs
+    from drama_series_agent.drama.episode_progress import list_episode_progress
     from drama_series_agent.drama.event_bus import get_event_bus
     from drama_series_agent.drama.runtime import load_runtime
 
@@ -667,12 +1121,18 @@ def api_jobs(cid: str) -> dict[str, Any]:
             e.to_dict() for e in get_event_bus().history(series_id=rt.series_id)[-60:]
         ]
     status = build_status_payload(project)
+    try:
+        episodes = list_episode_progress(project)
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"list_episode_progress failed: {e}")
+        episodes = []
     return {
         "ok": True,
         "series_id": rt.series_id,
         "stage": rt.stage,
         "next_episode": rt.next_episode,
         "jobs": list(by_id.values()),
+        "episodes": episodes,
         "events": events,
         "s2": status.get("s2"),
         "status": status,
@@ -721,6 +1181,118 @@ def api_jobs_resume(cid: str, body: JobControlRequest | None = None) -> dict[str
     }
 
 
+@router.get("/conversations/{cid}/episodes/{episode_id}/master")
+def api_download_episode_master(cid: str, episode_id: str):
+    """Download concatenated master.mp4 for an episode."""
+    row = _require_conv(cid)
+    project = _project(row)
+    from drama_series_agent.drama.comfy_worker import resolve_templates_dir
+
+    ep = episode_id.strip()
+    if ep.lower().startswith("ep") and not ep.startswith("EP"):
+        ep = "EP" + ep[2:]
+    master = resolve_templates_dir(project) / "output" / ep / "master.mp4"
+    if not master.is_file() or master.stat().st_size <= 0:
+        raise HTTPException(status_code=404, detail=f"{ep} master.mp4 not found")
+    return FileResponse(
+        master.resolve(),
+        media_type="video/mp4",
+        filename=f"{row.get('series_id') or 'series'}_{ep}_master.mp4",
+    )
+
+
+@router.get("/conversations/{cid}/episodes/{episode_id}/shots/{shot_id}/video")
+def api_episode_shot_video(cid: str, episode_id: str, shot_id: str):
+    """Stream a single shot video for preview."""
+    row = _require_conv(cid)
+    project = _project(row)
+    from drama_series_agent.drama.comfy_worker import resolve_templates_dir
+
+    ep = episode_id.strip()
+    if ep.lower().startswith("ep") and not ep.startswith("EP"):
+        ep = "EP" + ep[2:]
+    sid = shot_id.strip()
+    video = resolve_templates_dir(project) / "output" / ep / "shots" / sid / "video.mp4"
+    if not video.is_file() or video.stat().st_size <= 0:
+        raise HTTPException(status_code=404, detail=f"{ep}/{sid} video not found")
+    return FileResponse(video.resolve(), media_type="video/mp4")
+
+
+@router.post(
+    "/conversations/{cid}/episodes/{episode_id}/shots/{shot_id}/regenerate",
+    response_model=ActionResponse,
+)
+def api_regenerate_shot(
+    cid: str,
+    episode_id: str,
+    shot_id: str,
+    body: ShotRegenerateRequest | None = None,
+) -> dict[str, Any]:
+    """Force-render one shot then re-concat master.mp4."""
+    row = _require_conv(cid)
+    project = _project(row)
+    from drama_series_agent.drama.comfy_worker import regenerate_shot
+    from drama_series_agent.drama.runtime import load_runtime
+    from drama_series_agent.agent.chat_store import append_message
+
+    note = (body.note if body else None) or ""
+    result = regenerate_shot(
+        hermes_project_dir=project,
+        episode_id=episode_id,
+        shot_id=shot_id,
+        run_in_background=True if body is None else body.run_in_background,
+    )
+    if note.strip():
+        append_message(
+            project,
+            role="user",
+            content=f"[Jobs] 重渲 {episode_id}/{shot_id}：{note.strip()}",
+        )
+    ok = bool(result.get("ok"))
+    if ok:
+        # keep runtime resume hint on this shot while job runs
+        rt = load_runtime(project)
+        ep = episode_id.strip()
+        if ep.lower().startswith("ep") and not ep.startswith("EP"):
+            ep = "EP" + ep[2:]
+        row_ep = dict(rt.episodes.get(ep) or {})
+        row_ep["resume_from_shot"] = shot_id.strip()
+        rt.episodes[ep] = row_ep
+        from drama_series_agent.drama.runtime import save_runtime
+
+        save_runtime(project, rt)
+    return {
+        "ok": ok,
+        "status": build_status_payload(project),
+        "message": result.get("message") or result.get("error"),
+        "job_id": result.get("job_id"),
+    }
+
+
+@router.post(
+    "/conversations/{cid}/episodes/{episode_id}/rebuild-master",
+    response_model=ActionResponse,
+)
+def api_rebuild_master(cid: str, episode_id: str) -> dict[str, Any]:
+    """Re-concat master.mp4 from existing shot videos without re-rendering."""
+    row = _require_conv(cid)
+    project = _project(row)
+    from drama_series_agent.drama.episode_progress import rebuild_master_from_shots
+
+    try:
+        master = rebuild_master_from_shots(project, episode_id)
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=str(e)) from e
+    return {
+        "ok": True,
+        "status": build_status_payload(project),
+        "message": f"已重新拼接 {master.name}",
+        "master_path": str(master),
+    }
+
+
 @router.get("/conversations/{cid}/events")
 async def api_events(cid: str) -> StreamingResponse:
     row = _require_conv(cid)
@@ -748,6 +1320,8 @@ async def api_events(cid: str) -> StreamingResponse:
 
 _HERMES_VIDEO_DEFAULTS = [
     "selfhost/video_minimax_h3_r2v_fast.json",
+    "selfhost/video_minimax_h3_r2v_turbo.json",
+    "selfhost/video_minimax_h3_r2v_lora.json",
     "selfhost/video_minimax_h3_r2v.json",
     "selfhost/video_minimax_h3_i2v.json",
 ]
@@ -930,18 +1504,27 @@ def api_test_llm(body: LlmTestRequest) -> dict[str, Any]:
 
 @router.post("/settings/load_models", response_model=LlmTestResponse)
 def api_load_models(body: LlmTestRequest) -> dict[str, Any]:
-    from drama_series_agent.utils.llm_util import fetch_available_models
+    from drama_series_agent.utils.llm_util import fetch_available_models, test_llm_connection
 
     if not (body.api_key and body.base_url):
         raise HTTPException(status_code=400, detail="请填写 api_key 与 base_url")
     try:
         models = fetch_available_models(body.api_key, body.base_url)
+        if models:
+            return {
+                "ok": True,
+                "message": f"已加载 {len(models)} 个模型",
+                "models": models,
+            }
         return {
             "ok": True,
-            "message": f"已加载 {len(models)} 个模型",
-            "models": models,
+            "message": "接口已连通，但未返回模型列表；请用「自定义」填写模型名后保存",
+            "models": [],
         }
     except Exception as e:  # noqa: BLE001
+        ok, message, _ = test_llm_connection(body.api_key, body.base_url)
+        if not ok and message:
+            return {"ok": False, "message": message, "models": []}
         return {"ok": False, "message": f"加载模型失败：{e}", "models": []}
 
 

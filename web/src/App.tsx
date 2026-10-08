@@ -14,6 +14,7 @@ import { NewChatModal } from "./components/NewChatModal";
 import { StatusBar } from "./components/StatusBar";
 import { SystemConfigPanel } from "./components/SystemConfigPanel";
 import { Workbench } from "./components/Workbench";
+import { BiblePage } from "./pages/BiblePage";
 import { CastPage } from "./pages/CastPage";
 import { JobsPage } from "./pages/JobsPage";
 import { LiteraryPage } from "./pages/LiteraryPage";
@@ -77,9 +78,14 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // When opening literary/cast deep link, sync active conversation
+  // When opening literary/bible/cast deep link, sync active conversation
   useEffect(() => {
-    if (route.name === "literary" || route.name === "cast" || route.name === "jobs") {
+    if (
+      route.name === "literary" ||
+      route.name === "bible" ||
+      route.name === "cast" ||
+      route.name === "jobs"
+    ) {
       if (route.conversationId !== activeId) {
         void selectConversation(route.conversationId);
       }
@@ -100,6 +106,37 @@ export default function App() {
       const res = await postMessage(activeId, text);
       setStatus(res.status);
       setMessages((prev) => [...prev, res.assistant_message]);
+      const startedDevelop = Boolean(
+        res.tool_trace?.some((t) => t.name === "run_series_develop"),
+      );
+      const startedLiterary = Boolean(
+        res.tool_trace?.some((t) => t.name === "run_literary_generate"),
+      );
+      const hasActiveJobs = Boolean(res.status?.active_job_ids?.length);
+      if (startedDevelop || startedLiterary || hasActiveJobs) {
+        // Poll chat until background worker appends completion message
+        const cid = activeId;
+        let n = 0;
+        const timer = window.setInterval(async () => {
+          n += 1;
+          try {
+            const [msgs, st] = await Promise.all([
+              getMessages(cid),
+              getConversation(cid).then((c) => c.status).catch(() => null),
+            ]);
+            setMessages(msgs);
+            if (st) setStatus(st);
+            const active = st?.active_job_ids?.length ?? 0;
+            // literary jobs can take longer than develop
+            const maxPoll = startedLiterary ? 120 : 60;
+            if (active === 0 || n >= maxPoll) {
+              window.clearInterval(timer);
+            }
+          } catch {
+            if (n >= 120) window.clearInterval(timer);
+          }
+        }, 3000);
+      }
     } catch (err) {
       setMessages((prev) => [
         ...prev,
@@ -118,6 +155,14 @@ export default function App() {
       <LiteraryPage
         conversationId={route.conversationId}
         episodeId={route.episodeId}
+      />
+    );
+  }
+  if (route.name === "bible") {
+    return (
+      <BiblePage
+        conversationId={route.conversationId}
+        fileName={route.fileName}
       />
     );
   }

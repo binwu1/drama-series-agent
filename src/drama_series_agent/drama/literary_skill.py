@@ -19,16 +19,10 @@ _REF_CHARS = 1800
 
 
 def skill_root() -> Optional[Path]:
-    """Repo `.cursor/skills/0xsline-short-drama`, not a runtime tool the chat model can open."""
-    here = Path(__file__).resolve()
-    candidates = [
-        here.parents[3] / ".cursor" / "skills" / _SKILL_NAME,
-        here.parents[2] / ".cursor" / "skills" / _SKILL_NAME,
-    ]
-    for path in candidates:
-        if (path / "SKILL.md").is_file():
-            return path
-    return None
+    """Repo `skills/0xsline-short-drama`, not a runtime tool the chat model can open."""
+    from drama_series_agent.utils.skills_paths import skill_root as resolve_skill
+
+    return resolve_skill(_SKILL_NAME)
 
 
 def _clip(text: str, limit: int = _REF_CHARS) -> str:
@@ -45,6 +39,8 @@ def skill_prompt_pack() -> str:
     parts = [
         "你是微短剧编剧。按 0xsline-short-drama 的国内单集格式写可拍摄剧本，不要写策划说明。",
         "单集 1–3 分钟，至少 3 个场次。第 1 集遵守开篇黄金法则，结尾必须有钩子。",
+        "硬约束：本集剧情必须落实用户消息里的【分集目录依据】"
+        "（进入压力→追求/阻力→出去问题）；可细化场次与对白，但不得改主线节点。",
         "禁止把 premise 原文贴成一句台词，禁止「我们开始吧」这类空对白。",
         "文首必须有角色名单，便于下游抽角色：",
         "## 出场",
@@ -65,28 +61,32 @@ def skill_prompt_pack() -> str:
 
 
 def _chat(system: str, user: str) -> str:
-    from openai import OpenAI
-
-    from drama_series_agent.adapters.config import config_manager
-
-    cfg = config_manager.config
-    llm = getattr(cfg, "llm", None) or {}
-    if hasattr(llm, "model_dump"):
-        llm = llm.model_dump()
-    api_key = (llm.get("api_key") if isinstance(llm, dict) else None) or ""
-    base_url = (llm.get("base_url") if isinstance(llm, dict) else None) or None
-    model = (llm.get("model") if isinstance(llm, dict) else None) or "gpt-4o-mini"
-    client = OpenAI(api_key=api_key or "sk-placeholder", base_url=base_url, timeout=180)
-    resp = client.chat.completions.create(
-        model=model,
-        messages=[
-            {"role": "system", "content": system},
-            {"role": "user", "content": user},
-        ],
-        temperature=0.7,
-        max_tokens=4000,
+    from drama_series_agent.utils.llm_client import (
+        create_sync_client,
+        ensure_choices,
+        load_llm_settings,
+        message_text,
+        prepare_request_kwargs,
     )
-    return (resp.choices[0].message.content or "").strip()
+
+    cfg = load_llm_settings()
+    client = create_sync_client(api_key=cfg["api_key"], base_url=cfg["base_url"])
+    kwargs = prepare_request_kwargs(
+        base_url=cfg["base_url"],
+        model=cfg["model"],
+        kwargs={
+            "model": cfg["model"],
+            "messages": [
+                {"role": "system", "content": system},
+                {"role": "user", "content": user},
+            ],
+            "temperature": 0.7,
+            "max_tokens": 4000,
+        },
+    )
+    resp = client.chat.completions.create(**kwargs)
+    msg = ensure_choices(resp, model=cfg["model"]).message
+    return message_text(msg) or ""
 
 
 def _strip_fence(text: str) -> str:
@@ -158,15 +158,21 @@ def write_with_skill(
 
     paths: dict[str, str] = {}
     names: list[str] = []
+    from drama_series_agent.drama.series_bible import bible_context_for_episode
+
     for ep_id in targets:
         mnum = re.match(r"ep(\d+)$", ep_id, re.I)
         n = int(mnum.group(1)) if mnum else 1
+        bible_ctx = bible_context_for_episode(
+            project_dir=Path(project_dir), episode_n=n
+        )
         user = (
-            f"系列：{series_id}\n题材：{genre}\n第{n}集\n"
-            f"premise：{premise.strip()}\n"
+            f"系列：{series_id}\n题材：{genre}\n第{n}集（{ep_id}）\n"
+            f"premise：{premise.strip()}\n\n"
+            f"{bible_ctx}\n"
         )
         if revision_notes:
-            user += f"修订要求：{revision_notes}\n"
+            user += f"\n修订要求：{revision_notes}\n"
         body = _strip_fence(_chat(system, user))
         if "场次" not in body or len(body) < 400:
             raise ValueError("skill draft too short or missing 场次")

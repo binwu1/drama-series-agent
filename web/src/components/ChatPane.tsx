@@ -8,6 +8,8 @@ type Props = {
   disabled?: boolean;
 };
 
+const CHAT_DRAFT_KEY = "hermes.chatDraft";
+
 export function ChatPane({ messages, sending, onSend, disabled }: Props) {
   const [text, setText] = useState("");
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -15,6 +17,18 @@ export function ChatPane({ messages, sending, onSend, disabled }: Props) {
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, sending]);
+
+  useEffect(() => {
+    try {
+      const draft = sessionStorage.getItem(CHAT_DRAFT_KEY);
+      if (draft) {
+        setText(draft);
+        sessionStorage.removeItem(CHAT_DRAFT_KEY);
+      }
+    } catch {
+      /* ignore */
+    }
+  }, []);
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();

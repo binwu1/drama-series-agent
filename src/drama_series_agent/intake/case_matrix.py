@@ -65,7 +65,7 @@ CASE_ROUTING: dict[str, dict] = {
     "S0I0A0": {
         "label": "只有一句话/题材",
         "stage1_action": "立项问卷 + 空骨架",
-        "suggested_skills": ["0xsline-short-drama", "short-drama-develop"],
+        "suggested_skills": ["drama-series-develop", "0xsline-short-drama"],
         "blocks_visual": True,
         "blocks_audio_hardlock": True,
     },
@@ -100,7 +100,7 @@ CASE_ROUTING: dict[str, dict] = {
         "suggested_skills": [
             "short-drama-storyboard",
             "short-drama-video-prompts",
-            "drama_series-h3-r2v-prompts",
+            "drama-series-h3-r2v-prompts",
         ],
         "blocks_visual": False,
         "blocks_audio_hardlock": False,

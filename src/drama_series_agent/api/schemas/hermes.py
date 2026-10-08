@@ -33,6 +33,7 @@ class PostMessageResponse(BaseModel):
     assistant_message: dict[str, Any]
     status: dict[str, Any]
     tool_trace: list[dict[str, Any]] = Field(default_factory=list)
+    turn_trace: Optional[dict[str, Any]] = None
 
 
 class ActionResponse(BaseModel):
@@ -53,6 +54,11 @@ class JobControlRequest(BaseModel):
     episode_id: Optional[str] = None
     from_shot: Optional[str] = None
     force: bool = False
+    run_in_background: bool = True
+
+
+class ShotRegenerateRequest(BaseModel):
+    note: Optional[str] = None
     run_in_background: bool = True
 
 
@@ -111,10 +117,29 @@ class LiteraryEpisodeOut(BaseModel):
     status_zh: Optional[str] = None
     series_id: Optional[str] = None
     title: Optional[str] = None
+    mtime: Optional[str] = None
 
 
 class LiterarySaveRequest(BaseModel):
     content: str
+
+
+class BibleDocOut(BaseModel):
+    file: str
+    label: str = ""
+    content: str = ""
+    ready: bool = False
+    path: Optional[str] = None
+    series_id: Optional[str] = None
+    title: Optional[str] = None
+    mtime: Optional[float] = None
+    hint: Optional[str] = None
+    downstream_dirty: Optional[dict[str, Any]] = None
+
+
+class BibleSaveRequest(BaseModel):
+    content: str
+    preserve_format: bool = True
 
 
 class CastUploadResponse(BaseModel):

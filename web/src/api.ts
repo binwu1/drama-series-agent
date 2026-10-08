@@ -23,6 +23,17 @@ export type StatusPayload = {
   }>;
   open_workbench?: boolean;
   status_label_zh?: string;
+  series_bible?: {
+    bible_ready?: boolean;
+    missing?: string[];
+    core_missing?: string[];
+    docs?: Array<{
+      file?: string;
+      label?: string;
+      ready?: boolean;
+      path?: string;
+    }>;
+  };
   artifacts?: {
     literary?: {
       ok?: boolean;
@@ -211,16 +222,82 @@ export type JobEventRow = {
   ts?: string;
 };
 
+export type EpisodeShotProgress = {
+  shot_id: string;
+  order?: number;
+  duration_seconds?: number;
+  has_video?: boolean;
+  has_tail?: boolean;
+  complete?: boolean;
+  video_bytes?: number;
+};
+
+export type EpisodeProgress = {
+  episode_id: string;
+  jsonl_exists?: boolean;
+  shot_total?: number;
+  shot_done?: number;
+  all_shots_complete?: boolean;
+  master_ready?: boolean;
+  master_bytes?: number;
+  resume_from_shot?: string | null;
+  continue_from_shot?: string | null;
+  runtime_status?: string | null;
+  progress_status?: string;
+  workflow?: string | null;
+  shots?: EpisodeShotProgress[];
+};
+
 export async function getJobs(cid: string): Promise<{
   ok?: boolean;
   series_id?: string;
   stage?: string;
   next_episode?: string;
   jobs?: JobSnap[];
+  episodes?: EpisodeProgress[];
   events?: JobEventRow[];
   s2?: StatusPayload["s2"];
 }> {
   return jsonOrThrow(await fetch(`${BASE}/conversations/${cid}/jobs`));
+}
+
+export function episodeMasterUrl(cid: string, episodeId: string) {
+  return `${BASE}/conversations/${cid}/episodes/${encodeURIComponent(episodeId)}/master`;
+}
+
+export function episodeShotVideoUrl(
+  cid: string,
+  episodeId: string,
+  shotId: string,
+) {
+  return `${BASE}/conversations/${cid}/episodes/${encodeURIComponent(episodeId)}/shots/${encodeURIComponent(shotId)}/video`;
+}
+
+export async function regenerateShot(
+  cid: string,
+  episodeId: string,
+  shotId: string,
+  note?: string,
+) {
+  return jsonOrThrow(
+    await fetch(
+      `${BASE}/conversations/${cid}/episodes/${encodeURIComponent(episodeId)}/shots/${encodeURIComponent(shotId)}/regenerate`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ note: note || null, run_in_background: true }),
+      },
+    ),
+  );
+}
+
+export async function rebuildMaster(cid: string, episodeId: string) {
+  return jsonOrThrow(
+    await fetch(
+      `${BASE}/conversations/${cid}/episodes/${encodeURIComponent(episodeId)}/rebuild-master`,
+      { method: "POST" },
+    ),
+  );
 }
 
 export async function cancelJobs(
@@ -257,6 +334,39 @@ export async function resumeJobs(
   );
 }
 
+export async function listBible(cid: string) {
+  return jsonOrThrow(await fetch(`${BASE}/conversations/${cid}/bible`));
+}
+
+export async function getBibleDoc(cid: string, fileName: string) {
+  return jsonOrThrow(
+    await fetch(
+      `${BASE}/conversations/${cid}/bible/${encodeURIComponent(fileName)}`,
+    ),
+  );
+}
+
+export async function saveBibleDoc(
+  cid: string,
+  fileName: string,
+  content: string,
+  preserveFormat = true,
+) {
+  return jsonOrThrow(
+    await fetch(
+      `${BASE}/conversations/${cid}/bible/${encodeURIComponent(fileName)}`,
+      {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          content,
+          preserve_format: preserveFormat,
+        }),
+      },
+    ),
+  );
+}
+
 export async function listLiterary(cid: string) {
   return jsonOrThrow(await fetch(`${BASE}/conversations/${cid}/literary`));
 }
@@ -280,6 +390,47 @@ export async function saveLiteraryEpisode(
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ content }),
       },
+    ),
+  );
+}
+
+export async function getEpisodeFirstFrame(cid: string, episodeId: string) {
+  return jsonOrThrow(
+    await fetch(
+      `${BASE}/conversations/${cid}/literary/${encodeURIComponent(episodeId)}/first-frame`,
+    ),
+  );
+}
+
+export function episodeFirstFrameImageUrl(
+  cid: string,
+  episodeId: string,
+  bust?: number | string,
+) {
+  const base = `${BASE}/conversations/${cid}/literary/${encodeURIComponent(episodeId)}/first-frame/image`;
+  return bust != null ? `${base}?t=${bust}` : base;
+}
+
+export async function uploadEpisodeFirstFrame(
+  cid: string,
+  episodeId: string,
+  file: File,
+) {
+  const fd = new FormData();
+  fd.append("file", file);
+  return jsonOrThrow(
+    await fetch(
+      `${BASE}/conversations/${cid}/literary/${encodeURIComponent(episodeId)}/first-frame`,
+      { method: "POST", body: fd },
+    ),
+  );
+}
+
+export async function clearEpisodeFirstFrame(cid: string, episodeId: string) {
+  return jsonOrThrow(
+    await fetch(
+      `${BASE}/conversations/${cid}/literary/${encodeURIComponent(episodeId)}/first-frame`,
+      { method: "DELETE" },
     ),
   );
 }

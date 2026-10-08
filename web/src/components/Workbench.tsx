@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { getConversation, type StatusPayload } from "../api";
-import { goCast, goJobs, goLiterary } from "../routing";
+import { goBible, goCast, goJobs, goLiterary } from "../routing";
 
 type Props = {
   conversationId: string | null;
@@ -133,6 +133,62 @@ export function Workbench({
             >
               打开生成进度页 →
             </button>
+          </section>
+
+          <section className="wb-section">
+            <h4>系列设定</h4>
+            <p className="muted">
+              大纲 / 世界观 / 角色 / 画风 / 分集目录。可手改（保格式）或回聊天让 Agent 改。
+            </p>
+            {(() => {
+              const bibleDocs =
+                (status?.series_bible?.docs || []) as Array<{
+                  file?: string;
+                  label?: string;
+                  ready?: boolean;
+                }>;
+              const readyN = bibleDocs.filter((d) => d.ready).length;
+              return (
+                <>
+                  <ul className="gate-list">
+                    <li>
+                      圣经{" "}
+                      {status?.series_bible?.bible_ready
+                        ? `✓ 已齐（${readyN}/${bibleDocs.length || 5}）`
+                        : `… 未齐（${readyN}/${bibleDocs.length || 5}）`}
+                    </li>
+                  </ul>
+                  {bibleDocs.length > 0 && (
+                    <ul className="wb-link-list">
+                      {bibleDocs.map((d) => (
+                        <li key={String(d.file)}>
+                          <button
+                            type="button"
+                            className="linkish"
+                            onClick={() =>
+                              goBible(conversationId!, String(d.file))
+                            }
+                          >
+                            {d.label || d.file}
+                            <span className="muted">
+                              {" "}
+                              · {d.ready ? "已有" : "缺失"}
+                            </span>
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  <button
+                    type="button"
+                    className="ghost"
+                    onClick={() => goBible(conversationId!)}
+                  >
+                    打开系列设定页 →
+                  </button>
+                </>
+              );
+            })()}
           </section>
 
           <section className="wb-section">

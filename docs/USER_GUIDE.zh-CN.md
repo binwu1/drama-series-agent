@@ -27,8 +27,10 @@
 |------|------|
 | 已启动 API + 工作台（`.\start.ps1 -WithWeb` / `./start.sh --with-web`） | 前端依赖 API |
 | 系统配置里填好大模型 | 聊天 / 立项 / 写集 |
-| ComfyUI 已加载 H3 Ref2VA | 真正渲染视频 |
+| **自行安装** [ComfyUI](https://github.com/comfyanonymous/ComfyUI)，并按 [`workflows/selfhost/`](../workflows/selfhost/) **下载齐全模型与自定义节点** | 真正渲染视频（本仓库不附带 ComfyUI/权重） |
 | 出片前准备好 `data/cast/{系列}/` 定妆图 | Ref2VA 的 Picture 参考 |
+
+模型文件名与安装步骤见根目录 [README 中文版 · ComfyUI](../README.zh-CN.md#comfyui出片必装--需自行安装)。
 
 浏览器打开 **http://localhost:5173/**。若页面能开但聊天报错，多半是 **8000** 端口 API 未启动。
 

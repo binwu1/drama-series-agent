@@ -10,10 +10,11 @@
 > **立项 → 写集 → 定妆 → Ref2VA 出片**，一个绑定系列的 Agent 跑通全链路。
 
 <p align="center">
-  <video width="360" controls playsinline muted poster="docs/assets/showcase-still.jpg">
-    <source src="docs/assets/demo.mp4" type="video/mp4" />
-  </video>
+  <a href="docs/assets/demo.mp4">
+    <img src="docs/assets/showcase-still.jpg" alt="演示成片 — 点击播放 demo.mp4" width="360" />
+  </a>
 </p>
+<p align="center"><a href="docs/assets/demo.mp4"><strong>▶ 播放 demo.mp4</strong></a></p>
 
 聊天即产线：系列圣经与分集地图、文学剧本、角色定妆、MiniMax H3 Reference-to-Video 分镜、下一集交接——全部挂在同一个 `series_id` 上。
 
@@ -56,9 +57,29 @@
 
 - Python **3.10+**
 - **ffmpeg**（见下方 [安装 ffmpeg](#安装-ffmpeg)）
-- 本机 [ComfyUI](https://github.com/comfyanonymous/ComfyUI)，已加载 MiniMax H3 Ref2VA 模型与节点（真正出片时需要）
 - 可选：Node **18+**（React 工作台）
 - 可选：OpenAI 兼容 LLM（Agent 对话，如 ModelScope）
+
+### ComfyUI（出片必装 — 需自行安装）
+
+本仓库**不附带** ComfyUI，也**不附带** MiniMax H3 权重。出片前你必须：
+
+1. **自行安装 [ComfyUI](https://github.com/comfyanonymous/ComfyUI)**，并保持其运行（默认 `http://127.0.0.1:8188`）。
+2. 安装工作流所需的 **MiniMax H3 Ref2VA 相关自定义节点**（如 `MiniMaxH3ReferenceToVideo` 及配套 Loader；`*_fast` / `*_turbo` 还可能用到 SageAttention、BlockCache 等节点）。
+3. **按工作流 JSON 里出现的文件名，自行下载全部模型**，放到 ComfyUI 对应目录（`models/diffusion_models`、`models/text_encoders`、`models/vae`、`models/loras` 等，以你本机 ComfyUI 布局为准）。[`workflows/selfhost/`](workflows/selfhost/) 中常见文件名：
+
+| 文件（示例） | 用途 |
+|--------------|------|
+| `minimax_h3_ref2va_pruned_int8_convrot.safetensors` | UNET / Ref2VA（fast · lora · turbo） |
+| `minimax_h3_fl2va_pruned_int8_convrot.safetensors` | 质量档 `video_minimax_h3_r2v.json` |
+| `qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors` | 文本编码 / CLIP |
+| `minimax_h3_video_vae_fp16.safetensors` | 视频 VAE |
+| `minimax_h3_audio_vae_fp32.safetensors` | 音频 VAE |
+| `minimax_h3_ref2v_turbo_4step_v0.1_comfyui_bf16.safetensors` | Lightning LoRA（`*_lora` / `*_turbo`） |
+
+4. 在 ComfyUI 界面中打开所选工作流，确认**无红色缺失节点/模型**，再把本 Agent 的 `COMFYUI_URL` / 系统配置指向同一服务。
+
+未装好 ComfyUI 与模型时，仍可在工作台做立项 / 写集 / 定妆——**视频任务会失败**，直到上述步骤完成。
 
 ### 安装 ffmpeg
 
@@ -124,7 +145,7 @@ ffmpeg -version
 ### 安装本项目
 
 ```bash
-git clone https://github.com/<your-org>/drama-series-agent.git
+git clone https://github.com/binwu1/drama-series-agent.git
 cd drama-series-agent
 
 python -m venv .venv
@@ -199,6 +220,8 @@ drama-series-render \
 ---
 
 ## 工作流分档
+
+API 图在 [`workflows/selfhost/`](workflows/selfhost/)。请在**你自己的** ComfyUI 中导入/对齐，并按 JSON 内文件名下载模型（见 [ComfyUI 环境要求](#comfyui出片必装--需自行安装)）。
 
 | 工作流 | 用途 |
 |--------|------|

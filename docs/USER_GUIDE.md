@@ -27,8 +27,10 @@ API (must be running): **http://127.0.0.1:8000**
 |------|-----|
 | API + workbench started (`.\start.ps1 -WithWeb` / `./start.sh --with-web`) | UI talks to the API |
 | LLM configured (System config) | Agent chat / develop / write |
-| ComfyUI with H3 Ref2VA models | Actual video render |
+| **Install [ComfyUI](https://github.com/comfyanonymous/ComfyUI) yourself** and download **all models + custom nodes** named in [`workflows/selfhost/`](../workflows/selfhost/) | Actual video render (this repo does not ship ComfyUI or weights) |
 | Cast portraits under `data/cast/{series}/` when rendering | Picture refs for Ref2VA |
+
+Model filenames and setup steps: [README · ComfyUI](../README.md#comfyui-required-for-video-render--install-yourself).
 
 Open **http://localhost:5173/**. If the page loads but chat fails, the API on port **8000** is down.
 

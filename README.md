@@ -10,10 +10,11 @@
 > **develop → write → cast → Ref2VA render** — in one series-scoped agent.
 
 <p align="center">
-  <video width="360" controls playsinline muted poster="docs/assets/showcase-still.jpg">
-    <source src="docs/assets/demo.mp4" type="video/mp4" />
-  </video>
+  <a href="docs/assets/demo.mp4">
+    <img src="docs/assets/showcase-still.jpg" alt="Demo — click to play demo.mp4" width="360" />
+  </a>
 </p>
+<p align="center"><a href="docs/assets/demo.mp4"><strong>▶ Play demo.mp4</strong></a></p>
 
 Turn chat into a production loop: bible & episode map, literary scripts, cast anchors, MiniMax H3 Reference-to-Video shots, and a next-episode handoff — all bound to one `series_id`.
 
@@ -56,9 +57,29 @@ idea → develop (bible) → literary (EP) → cast accept
 
 - Python **3.10+**
 - **ffmpeg** (see [Install ffmpeg](#install-ffmpeg) below)
-- Local [ComfyUI](https://github.com/comfyanonymous/ComfyUI) with MiniMax H3 Ref2VA models/nodes (needed for actual video render)
 - Optional: Node **18+** for the React workbench
 - Optional: OpenAI-compatible LLM for the agent chat (e.g. ModelScope)
+
+### ComfyUI (required for video render — install yourself)
+
+This repo does **not** bundle ComfyUI or MiniMax H3 weights. You must:
+
+1. **Install [ComfyUI](https://github.com/comfyanonymous/ComfyUI) yourself** and keep it running (default `http://127.0.0.1:8188`).
+2. Install the **MiniMax H3 Ref2VA custom nodes** your graphs need (e.g. `MiniMaxH3ReferenceToVideo` and related loaders / optional SageAttention · BlockCache nodes used by the `*_fast` / `*_turbo` tiers).
+3. **Download every model file referenced by the workflow JSON** into the matching ComfyUI folders (`models/diffusion_models`, `models/text_encoders`, `models/vae`, `models/loras`, … — follow ComfyUI’s usual layout). Typical names from [`workflows/selfhost/`](workflows/selfhost/):
+
+| File (examples) | Used by |
+|-----------------|---------|
+| `minimax_h3_ref2va_pruned_int8_convrot.safetensors` | UNET / Ref2VA (fast · lora · turbo) |
+| `minimax_h3_fl2va_pruned_int8_convrot.safetensors` | Quality tier `video_minimax_h3_r2v.json` |
+| `qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors` | Text encoder / CLIP |
+| `minimax_h3_video_vae_fp16.safetensors` | Video VAE |
+| `minimax_h3_audio_vae_fp32.safetensors` | Audio VAE |
+| `minimax_h3_ref2v_turbo_4step_v0.1_comfyui_bf16.safetensors` | Lightning LoRA (`*_lora` / `*_turbo`) |
+
+4. Open the chosen workflow once in the ComfyUI UI and confirm **no red/missing nodes or models**, then point this agent at the same server (`COMFYUI_URL` / system config).
+
+Without a ready ComfyUI + models, you can still run intake / develop / literary / cast in the workbench — **video jobs will fail** until the above is done.
 
 ### Install ffmpeg
 
@@ -124,7 +145,7 @@ ffmpeg -version
 ### Install the project
 
 ```bash
-git clone https://github.com/<your-org>/drama-series-agent.git
+git clone https://github.com/binwu1/drama-series-agent.git
 cd drama-series-agent
 
 python -m venv .venv
@@ -199,6 +220,8 @@ Output: `templates/{series}/output/{EP}/master.mp4` (shots concat with a short h
 ---
 
 ## Workflows
+
+API graphs live under [`workflows/selfhost/`](workflows/selfhost/). Import / align them in **your** ComfyUI, and download any model the JSON names (see [ComfyUI requirements](#comfyui-required-for-video-render--install-yourself)).
 
 | Workflow | Role |
 |----------|------|

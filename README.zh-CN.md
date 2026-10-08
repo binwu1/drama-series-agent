@@ -10,18 +10,10 @@
 > **立项 → 写集 → 定妆 → Ref2VA 出片**，一个绑定系列的 Agent 跑通全链路。
 
 <p align="center">
-  <img src="docs/assets/showcase-still.jpg" alt="Drama Series Agent 竖屏宣传静帧" width="320" />
-</p>
-
-<p align="center"><em>本地 H3 R2V 跑通后的 9:16 静帧。将成片放到 <code>docs/assets/demo.mp4</code> 即可在 README 嵌入动态预览。</em></p>
-
-<!-- 放入 docs/assets/demo.mp4 后取消注释：
-<p align="center">
-  <video src="docs/assets/demo.mp4" controls width="360" poster="docs/assets/showcase-still.jpg">
-    浏览器不支持 video 标签时，可 <a href="docs/assets/demo.mp4">下载演示视频</a>
+  <video width="360" controls playsinline muted poster="docs/assets/showcase-still.jpg">
+    <source src="docs/assets/demo.mp4" type="video/mp4" />
   </video>
 </p>
--->
 
 聊天即产线：系列圣经与分集地图、文学剧本、角色定妆、MiniMax H3 Reference-to-Video 分镜、下一集交接——全部挂在同一个 `series_id` 上。
 

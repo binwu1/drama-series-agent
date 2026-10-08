@@ -10,18 +10,10 @@
 > **develop → write → cast → Ref2VA render** — in one series-scoped agent.
 
 <p align="center">
-  <img src="docs/assets/showcase-still.jpg" alt="Drama Series Agent showcase still (9:16)" width="320" />
-</p>
-
-<p align="center"><em>Showcase still from a local H3 R2V run (9:16). Drop <code>docs/assets/demo.mp4</code> to embed a motion reel.</em></p>
-
-<!-- Uncomment when docs/assets/demo.mp4 is present:
-<p align="center">
-  <video src="docs/assets/demo.mp4" controls width="360" poster="docs/assets/showcase-still.jpg">
-    Your browser does not support the video tag. <a href="docs/assets/demo.mp4">Download demo</a>
+  <video width="360" controls playsinline muted poster="docs/assets/showcase-still.jpg">
+    <source src="docs/assets/demo.mp4" type="video/mp4" />
   </video>
 </p>
--->
 
 Turn chat into a production loop: bible & episode map, literary scripts, cast anchors, MiniMax H3 Reference-to-Video shots, and a next-episode handoff — all bound to one `series_id`.
 

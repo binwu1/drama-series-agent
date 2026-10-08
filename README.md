@@ -9,12 +9,7 @@
 > From a one-line idea to a chained vertical short-drama episode —  
 > **develop → write → cast → Ref2VA render** — in one series-scoped agent.
 
-<p align="center">
-  <a href="docs/assets/demo.mp4">
-    <img src="docs/assets/showcase-still.jpg" alt="Demo — click to play demo.mp4" width="360" />
-  </a>
-</p>
-<p align="center"><a href="docs/assets/demo.mp4"><strong>▶ Play demo.mp4</strong></a></p>
+https://github.com/user-attachments/assets/52c170e2-bc91-41d2-8b3d-3f2de95c023c
 
 Turn chat into a production loop: bible & episode map, literary scripts, cast anchors, MiniMax H3 Reference-to-Video shots, and a next-episode handoff — all bound to one `series_id`.
 

@@ -9,12 +9,7 @@
 > 从一句点子到竖屏短剧成片——  
 > **立项 → 写集 → 定妆 → Ref2VA 出片**，一个绑定系列的 Agent 跑通全链路。
 
-<p align="center">
-  <a href="docs/assets/demo.mp4">
-    <img src="docs/assets/showcase-still.jpg" alt="演示成片 — 点击播放 demo.mp4" width="360" />
-  </a>
-</p>
-<p align="center"><a href="docs/assets/demo.mp4"><strong>▶ 播放 demo.mp4</strong></a></p>
+https://github.com/user-attachments/assets/52c170e2-bc91-41d2-8b3d-3f2de95c023c
 
 聊天即产线：系列圣经与分集地图、文学剧本、角色定妆、MiniMax H3 Reference-to-Video 分镜、下一集交接——全部挂在同一个 `series_id` 上。
 

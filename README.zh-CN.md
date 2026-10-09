@@ -11,7 +11,7 @@
 
 https://github.com/user-attachments/assets/52c170e2-bc91-41d2-8b3d-3f2de95c023c
 
-聊天即产线：系列圣经与分集地图、文学剧本、角色定妆、MiniMax H3 Reference-to-Video 分镜、下一集交接——全部挂在同一个 `series_id` 上。
+在同一个系列对话里，你可以依次完成：**系列设定 → 写剧本 → 定角色图 → 出视频**，状态都挂在同一个 `series_id` 上，下一集也能接着往下做。
 
 ---
 
@@ -19,30 +19,44 @@ https://github.com/user-attachments/assets/52c170e2-bc91-41d2-8b3d-3f2de95c023c
 
 | 痛点 | 我们提供 |
 |------|----------|
-| 点子停在备忘录 | [`skills/`](skills/) 立项 / 写集 / H3 接线技能包 |
-| 剧本拍不出来 | episode-run JSONL + Picture/Audio 绑定 Ref2VA |
-| 只会出单条、接不上集 | chain：上镜尾帧 → 下镜首帧 |
-| 工具碎片化 | 统一 API + React 工作台 + CLI 出片 |
+| 点子停在备忘录 | [`skills/`](skills/) 帮你立项、写集、对接出片 |
+| 剧本拍不出来 | 自动生成可提交给 ComfyUI 的分镜表（含角色图 / 音色引用） |
+| 只会出单条、接不上镜 | **上镜尾帧 → 下镜首帧**，自动接片，**无需手动剪辑** |
+| 工具太散 | 一个网页工作台 + 可选命令行，聊天和出片进度在一起看 |
 
 ---
 
 ## 功能亮点
 
-- **系列会话** — 一个对话窗口 ↔ 一个 `series_id`
-- **技能包**（与编辑器无关）— 进件 · 立项 · 文学 · H3 R2V，见 [`skills/`](skills/)
-- **本机 ComfyUI 出片** — MiniMax H3 Ref2VA 工作流在 [`workflows/selfhost/`](workflows/selfhost/)
-- **角色库** — `data/cast/{series}/` 定妆图 + 可选音色参考
-- **工作台** — FastAPI + React（`web/`）：聊天、圣经、文学、任务
-- **CLI** — `drama-series-render` 无头渲染整集
+- **Hermes 干什么（和 ComfyUI 怎么分工）**  
+  ComfyUI + MiniMax H3 负责「把一镜渲成视频」。Hermes 负责「从一句话走到能渲、能续、能改」的整条流程，典型顺序是：
 
----
+  1. 你说「立项 / 写第 1 集」→ 写出**系列设定**（大纲、世界观、角色、画风、分集目录）和单集剧本  
+  2. 定妆图放好并验收 → Hermes 把「谁出现在哪一镜」写进分镜任务表  
+  3. 你说「出片第 1 集」→ 生成可渲染文件并交给本机 ComfyUI 排队  
+  4. 中途断了 → 在「生成进度」里按集从断点续跑；某一镜不满意 → 只重渲那一镜再拼成片  
+  5. 你改了设定或重写剧本 → 自动标出后面哪些步骤要重做，而不是默认整集重来  
 
-## 流水线
+  一句话：你不用在聊天窗口和 ComfyUI 之间来回拷文件、自己对进度。
 
-```text
-点子 → 立项（圣经）→ 写集（EP）→ 定妆验收
-    → 构建 episode-run.jsonl → ComfyUI H3 R2V → master.mp4 → 下一集
-```
+- **分层记忆（流程里每层记什么）**
+  - **聊天记录** `memory/chat.jsonl` — 你和 Agent 说过的话（如「出片第 1 集」「重写第 2 集」）
+  - **项目摘要** `memory/PROJECT.md` — 这个系列的关键事实，方便后面几轮还记得「在拍哪部剧」
+  - **系列设定** `dramas/{系列}/` — 大纲、世界观、角色、画风、分集目录（写剧本时要读）
+  - **进度状态** `series_runtime.json` — 每集走到哪一步（剧本 / 定妆 / 出片）、从哪一镜续跑、用哪条工作流
+  - **操作轨迹** `memory/traces.jsonl` — 调用了哪些工具，方便排查「明明只想重写剧本却去出片了」这类问题  
+  改设定或重生剧情时，只作废需要重做的下游步骤，尽量少重渲。
+
+- **大模型从哪来** — 系统配置里可选：**ModelScope（免费额度友好）**、通义百炼 Qwen、OpenAI、Claude、DeepSeek、Moonshot、本机 Ollama；只要接口兼容 OpenAI 就能接。
+- **技能包** — 立项 / 写集 / H3 出片提示等放在 [`skills/`](skills/)，不绑死某一款编辑器
+- **本机出片** — MiniMax H3 工作流在 [`workflows/selfhost/`](workflows/selfhost/)，需自备 ComfyUI 与模型
+- **角色库** — `data/cast/{系列}/` 定妆图，可选音色参考
+- **网页工作台 / 命令行** — 浏览器里聊天、看进度；也可用 `drama-series-render` 直接渲一集
+
+<p align="center">
+  <img src="docs/assets/main.png" alt="Hermes 工作台主界面" width="920" />
+</p>
+<p align="center"><em>工作台：左侧聊天推进，右侧看每集进度与出片任务</em></p>
 
 ---
 
@@ -177,7 +191,7 @@ python scripts/doctor.py
 
 | 入口 | 地址 | 说明 |
 |------|------|------|
-| **Web 工作台** | **http://localhost:5173/** | Vite 默认端口（`web/`）。聊天、系列圣经、文学、定妆、任务、系统配置。 |
+| **Web 工作台** | **http://localhost:5173/** | Vite 默认端口（`web/`）。聊天、系列设定、剧本、定妆、生成进度、系统配置。 |
 | API 文档 | http://127.0.0.1:8000/docs | 后端 OpenAPI |
 | 前端调用的 API 根 | `http://127.0.0.1:8000/api/series` | 可在 `web/.env` 设置 `VITE_HERMES_API_BASE=...` 覆盖 |
 

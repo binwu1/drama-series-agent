@@ -11,7 +11,7 @@
 
 https://github.com/user-attachments/assets/52c170e2-bc91-41d2-8b3d-3f2de95c023c
 
-Turn chat into a production loop: bible & episode map, literary scripts, cast anchors, MiniMax H3 Reference-to-Video shots, and a next-episode handoff — all bound to one `series_id`.
+In one series chat you can walk through **series settings → episode script → cast portraits → video render**, all under the same `series_id`, then continue into the next episode.
 
 ---
 
@@ -19,30 +19,44 @@ Turn chat into a production loop: bible & episode map, literary scripts, cast an
 
 | Pain | What we ship |
 |------|----------------|
-| Ideas die in notes | Skills for develop / write / H3 wiring under [`skills/`](skills/) |
-| Scripts ≠ shootable | Episode-run JSONL + Picture/Audio binding for Ref2VA |
-| One-off clips, no series | Chain mode: prev-shot tail → next first frame |
-| Tool soup | One API + React workbench + CLI render |
+| Ideas die in notes | [`skills/`](skills/) for develop, write, and H3 wiring |
+| Scripts that cannot be shot | Auto-built shot tables for ComfyUI (with cast / voice refs) |
+| One-off clips, no shot continuity | **Prev-shot tail → next first frame** — auto chain, **no manual editing** |
+| Too many separate tools | One web workbench (+ optional CLI): chat and render progress together |
 
 ---
 
 ## Features
 
-- **Series-scoped chat** — one conversation ↔ one `series_id`
-- **Skill packs** (editor-agnostic) — intake · develop · literary · H3 R2V prompts in [`skills/`](skills/)
-- **Local ComfyUI render** — MiniMax H3 Ref2VA workflows under [`workflows/selfhost/`](workflows/selfhost/)
-- **Cast library** — `data/cast/{series}/` portraits + optional voice refs
-- **Workbench** — FastAPI + React (`web/`) for chat, bible, literary, jobs
-- **CLI** — `drama-series-render` for headless episode runs
+- **What Hermes does (vs ComfyUI)**  
+  ComfyUI + MiniMax H3 turn **one shot** into video. Hermes covers the path **from a sentence to something you can render, resume, and revise**:
 
----
+  1. You say “develop / write EP1” → Hermes writes **series settings** (plan, world, characters, art style, episode map) and the episode script  
+  2. Cast portraits are ready → Hermes binds “who appears in which shot” into the shot task table  
+  3. You say “render EP1” → it builds render files and queues your local ComfyUI  
+  4. If it stops → resume that episode from the breakpoint on the Jobs page; dislike one shot → re-render only that shot and re-concat  
+  5. If you change settings or rewrite a script → only the steps that must re-run are marked dirty, not a blind full-episode redo by default  
 
-## Pipeline
+  In short: you should not hand-copy files or manually sync status between chat and ComfyUI.
 
-```text
-idea → develop (bible) → literary (EP) → cast accept
-    → build episode-run.jsonl → ComfyUI H3 R2V → master.mp4 → next EP
-```
+- **Layered memory (what each layer keeps)**
+  - **Chat log** `memory/chat.jsonl` — what you asked the agent to do
+  - **Project summary** `memory/PROJECT.md` — series-level facts so later turns still “know which show this is”
+  - **Series settings** `dramas/{series}/` — plan, world, characters, art style, episode map (used when writing scripts)
+  - **Progress state** `series_runtime.json` — how far each episode is (script / cast / render), resume shot, chosen workflow
+  - **Action trace** `memory/traces.jsonl` — which tools ran (e.g. catch “rewrite script” wrongly starting a render)  
+  Changing settings or regenerating a script only invalidates the downstream steps that need redo.
+
+- **Where LLMs come from** — presets: **ModelScope (friendly free tier)**, Qwen (DashScope), OpenAI, Claude, DeepSeek, Moonshot, local Ollama; any OpenAI-compatible API works
+- **Skill packs** — develop / write / H3 prompt skills under [`skills/`](skills/), editor-agnostic
+- **Local render** — MiniMax H3 workflows in [`workflows/selfhost/`](workflows/selfhost/); you bring ComfyUI + models
+- **Cast library** — `data/cast/{series}/` portraits, optional voice refs
+- **Web UI / CLI** — chat and jobs in the browser; or `drama-series-render` for a headless episode
+
+<p align="center">
+  <img src="docs/assets/main.png" alt="Hermes workbench main UI" width="920" />
+</p>
+<p align="center"><em>Workbench: chat on the left, per-episode progress and render jobs on the right</em></p>
 
 ---
 
@@ -74,7 +88,7 @@ This repo does **not** bundle ComfyUI or MiniMax H3 weights. You must:
 
 4. Open the chosen workflow once in the ComfyUI UI and confirm **no red/missing nodes or models**, then point this agent at the same server (`COMFYUI_URL` / system config).
 
-Without a ready ComfyUI + models, you can still run intake / develop / literary / cast in the workbench — **video jobs will fail** until the above is done.
+Without a ready ComfyUI + models, you can still develop settings, write scripts, and manage cast in the workbench — **video jobs will fail** until the above is done.
 
 ### Install ffmpeg
 
@@ -177,7 +191,7 @@ If ffmpeg fails: install a system binary (above) or confirm `imageio-ffmpeg` is 
 
 | Surface | URL | Notes |
 |---------|-----|--------|
-| **Web workbench** | **http://localhost:5173/** | Default Vite port (`web/`). Chat, series bible, literary, cast, jobs, system config. |
+| **Web workbench** | **http://localhost:5173/** | Default Vite port (`web/`). Chat, series settings, scripts, cast, jobs, system config. |
 | API (OpenAPI) | http://127.0.0.1:8000/docs | Backend the UI calls |
 | API base used by UI | `http://127.0.0.1:8000/api/series` | Override with `web/.env`: `VITE_HERMES_API_BASE=...` |
 

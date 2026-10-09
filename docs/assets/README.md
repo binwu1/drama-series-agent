@@ -4,8 +4,10 @@ Tracked media for the GitHub README (exempt from root `*.png` / `*.mp4` ignores)
 
 | File | Role |
 |------|------|
+| `main.png` | Workbench main UI screenshot (README Features section) |
 | `showcase-still.jpg` | Vertical still from a local episode open frame |
-| `demo.mp4` | Optional short demo reel (drop here before publish) |
+| `demo.mp4` | Optional short demo reel (kept in repo; README inline player uses user-attachments) |
+| `demo-github.mp4` | Local-only ≤10MB compress for GitHub Issue drag-upload (gitignored) |
 
 To refresh the still from a series open frame:
 

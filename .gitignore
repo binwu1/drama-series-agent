@@ -28,3 +28,5 @@ dev_memory/
 # Local-only cheat sheet (git/GitHub ops); do not publish
 LOCAL_OPS.md
 .cursor/
+# Compressed copy only for GitHub Issue drag-upload (≤10MB); not required in git
+docs/assets/demo-github.mp4
